@@ -17,6 +17,8 @@ export class PterodactylError extends Error {
   }
 }
 
+const MAX_RATE_LIMIT_RETRIES = 4;
+
 export interface RequestOptions {
   query?: Record<string, string | number | undefined>;
   /** Sent as JSON. */
@@ -59,27 +61,37 @@ export class PterodactylHttp {
       throw new PterodactylError(`Refusing to send request to unexpected URL ${url.toString()}`, 0);
     }
 
-    let response: Response;
-    try {
-      response = await this.fetchImpl(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          Accept: 'application/json',
-          ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-          ...(options.textBody !== undefined ? { 'Content-Type': 'text/plain' } : {}),
-        },
-        body: options.textBody ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined),
-        redirect: 'error',
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new PterodactylError(
-        `Could not reach Pterodactyl at ${this.origin} (${reason}). Check PTERODACTYL_URL, including http vs https.`,
-        0,
-      );
+    let response: Response | undefined;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        response = await this.fetchImpl(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            Accept: 'application/json',
+            ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            ...(options.textBody !== undefined ? { 'Content-Type': 'text/plain' } : {}),
+          },
+          body: options.textBody ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined),
+          redirect: 'error',
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new PterodactylError(
+          `Could not reach Pterodactyl at ${this.origin} (${reason}). Check PTERODACTYL_URL, including http vs https.`,
+          0,
+        );
+      }
+      // Rate limited (e.g. while scanning many plugin folders): wait as told and try again.
+      // A 429 means Pterodactyl did nothing, so retrying is safe for every method.
+      if (response.status !== 429 || attempt >= MAX_RATE_LIMIT_RETRIES) break;
+      const retryAfter = Number(response.headers.get('retry-after'));
+      const seconds = Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : 2 ** attempt;
+      await response.body?.cancel();
+      await new Promise((resolve) => setTimeout(resolve, Math.min(seconds, 30) * 1000));
     }
+    if (!response) throw new PterodactylError('No response from Pterodactyl.', 0);
 
     if (response.status === 204) return undefined as T;
 

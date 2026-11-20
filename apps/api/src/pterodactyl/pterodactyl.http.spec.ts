@@ -89,4 +89,26 @@ describe('PterodactylHttp', () => {
       }),
     ).resolves.toBe('a: 1\n');
   });
+
+  it('waits and retries when Pterodactyl rate-limits', async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      return calls < 3
+        ? new Response('{"errors":[{"detail":"Too Many Attempts."}]}', { status: 429, headers: { 'Retry-After': '0' } })
+        : new Response('{"object":"list","data":[]}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const http = new PterodactylHttp('https://panel.example.com', 'ptlc_test', fetchImpl);
+    await expect(http.request('GET', '/api/client')).resolves.toEqual({ object: 'list', data: [] });
+    expect(calls).toBe(3);
+  });
+
+  it('gives up after a few rate-limited attempts', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response('{"errors":[{"detail":"Too Many Attempts."}]}', { status: 429, headers: { 'Retry-After': '0' } }),
+    ) as unknown as typeof fetch;
+    const http = new PterodactylHttp('https://panel.example.com', 'ptlc_test', fetchImpl);
+    await expect(http.request('GET', '/api/client')).rejects.toMatchObject({ status: 429 });
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+  });
 });

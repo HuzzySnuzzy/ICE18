@@ -112,6 +112,9 @@ export class DatabasesService {
       unmanaged: [...unmanaged.values()].sort((a, b) => a.databaseName.localeCompare(b.databaseName)),
       scannedAt: new Date(index.at).toISOString(),
       failedServers: user.isAdmin ? index.failedServers : 0,
+      scannedServers: index.scannedServers,
+      scannedFolders: index.scannedFolders,
+      problems: user.isAdmin ? index.problems.slice(0, 50) : [],
     };
   }
 

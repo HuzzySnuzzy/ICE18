@@ -685,11 +685,26 @@ function ObjectView({
 
 // ---------- database info ----------
 
+const LOOPBACK = ['127.0.0.1', 'localhost', '::1', '0.0.0.0', '172.18.0.1'];
+
+/** Whether a plugin's configured "host:port" points at this database's server. */
+function hostMatches(configured: string | null, database: PanelDatabase): boolean | null {
+  if (!configured) return null;
+  const match = /^\[?([^\]]+?)\]?(?::(\d+))?$/.exec(configured.trim());
+  if (!match) return null;
+  const host = match[1]!.toLowerCase();
+  const port = Number(match[2] ?? 3306);
+  if (port !== database.port) return false;
+  const known = [database.host, database.pluginHost].map((value) => value.toLowerCase());
+  if (known.includes(host)) return true;
+  return LOOPBACK.includes(host) && known.some((value) => LOOPBACK.includes(value));
+}
+
 function Property({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <dt className="text-ink-400">{label}</dt>
-      <dd className="min-w-0 break-words text-ink-100">{children}</dd>
+      <dd className="min-w-0 break-all text-ink-100 sm:break-words">{children}</dd>
     </>
   );
 }
@@ -747,11 +762,17 @@ function DatabaseInfo({
             No plugin ICE18 knows about points at this database. Plugins ICE18 has no recipe for aren't detected.
           </p>
         ) : (
+          <div className="overflow-x-auto">
+          <p className="mb-3 text-sm text-ink-400">
+            These plugins' configs name <span className="font-mono text-ink-200">{database.name}</span> as their database, so they
+            all read and write the same data (e.g. LuckPerms ranks or Plan statistics shared across a network).
+          </p>
           <table className="w-full border-collapse text-left text-sm">
             <thead>
               <tr className="bg-ink-800 text-xs text-ink-300">
                 <th className="border border-ink-700 px-3 py-1.5 font-medium">Server</th>
                 <th className="border border-ink-700 px-3 py-1.5 font-medium">Plugin</th>
+                <th className="border border-ink-700 px-3 py-1.5 font-medium">Host in its config</th>
                 <th className="border border-ink-700 px-3 py-1.5 font-medium">Config file</th>
               </tr>
             </thead>
@@ -768,11 +789,20 @@ function DatabaseInfo({
                     )}
                   </td>
                   <td className="border border-ink-700 px-3 py-1.5 text-ink-100">{usage.plugin}</td>
+                  <td className="border border-ink-700 px-3 py-1.5 font-mono text-xs">
+                    <span className={hostMatches(usage.host, database) === false ? 'text-amber-300' : 'text-ink-300'}>{usage.host ?? '?'}</span>
+                    {hostMatches(usage.host, database) === false && (
+                      <span className="block font-sans text-[11px] text-amber-300/80">
+                        Different host: this may be another database with the same name.
+                      </span>
+                    )}
+                  </td>
                   <td className="border border-ink-700 px-3 py-1.5 font-mono text-xs text-ink-300">{usage.configFile ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 
@@ -879,6 +909,7 @@ function NavigationPane({
   databases,
   usage,
   files,
+  filesError,
   snapshots,
   loadSnapshot,
   isAdmin,
@@ -891,6 +922,7 @@ function NavigationPane({
   databases: PanelDatabase[];
   usage: DatabaseUsageIndex | null;
   files: LocalDatabaseFile[] | null;
+  filesError: string | null;
   snapshots: Record<string, LocalDatabaseSnapshot | string>;
   loadSnapshot: (file: LocalDatabaseFile, refresh?: boolean) => void;
   isAdmin: boolean;
@@ -945,7 +977,7 @@ function NavigationPane({
   );
 
   return (
-    <aside className="flex max-h-80 min-h-0 flex-col border-b border-ink-700 bg-ink-900 md:max-h-none md:w-72 md:shrink-0 md:border-r md:border-b-0">
+    <aside className="flex max-h-96 min-h-0 flex-col border-b border-ink-700 bg-ink-900 lg:max-h-none lg:w-72 lg:shrink-0 lg:border-r lg:border-b-0">
       <div className="border-b border-ink-700 px-3 py-2">
         <div className="text-xs font-semibold tracking-wide text-ink-300 uppercase">All Databases</div>
         <input
@@ -1054,6 +1086,9 @@ function NavigationPane({
           </div>
         ))}
 
+        {filesError && (
+          <div className="mt-2 border-t border-ink-700 px-3 pt-2 text-xs text-red-300">Couldn't list local database files: {filesError}</div>
+        )}
         {files && files.length > 0 && (
           <LocalFilesSection
             files={files.filter(
@@ -1092,8 +1127,26 @@ function NavigationPane({
       </div>
       {usage && (
         <div className="border-t border-ink-700 px-3 py-1.5 text-[10px] text-ink-500">
-          Plugin usage scanned {formatDate(usage.scannedAt)}
-          {usage.failedServers > 0 && ` · ${usage.failedServers} server(s) couldn't be scanned`}
+          Scanned {formatDate(usage.scannedAt)} · {usage.scannedServers} server{usage.scannedServers === 1 ? '' : 's'} ·{' '}
+          {usage.scannedFolders} plugin folders · {files?.length ?? 0} database file{files?.length === 1 ? '' : 's'}
+          {usage.problems.length > 0 && (
+            <details className="mt-1 text-amber-300/90">
+              <summary className="cursor-pointer">
+                {usage.problems.length} couldn't be read{usage.problems.length >= 50 ? ' (first 50)' : ''}
+              </summary>
+              <ul className="mt-1 max-h-40 space-y-1 overflow-auto text-ink-400">
+                {usage.problems.map((problem, index) => (
+                  <li key={index}>
+                    <span className="text-ink-200">
+                      {problem.serverName}
+                      {problem.folder ? ` / ${problem.folder}` : ''}
+                    </span>
+                    : {problem.error}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
     </aside>
@@ -1232,6 +1285,7 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
   const [sheet, setSheet] = useState<{ handle: DatasheetHandle | null; design: DbTableDesign | null }>({ handle: null, design: null });
   const [stopping, setStopping] = useState<string | null>(null);
   const [files, setFiles] = useState<LocalDatabaseFile[] | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<Record<string, LocalDatabaseSnapshot | string>>({});
 
   const loadUsage = useCallback(async (refresh = false) => {
@@ -1240,9 +1294,14 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
       // Both come from the same plugin scan; the second request reuses the first one's result.
       const nextUsage = await api<DatabaseUsageIndex>(`/databases/usage${refresh ? '?refresh=1' : ''}`);
       setUsage(nextUsage);
+    } catch (err) {
+      setError(`Couldn't scan which servers use each database: ${errorMessage(err)}`);
+    }
+    try {
       setFiles(await api<LocalDatabaseFile[]>('/databases/files'));
-    } catch {
-      /* usage is a nice-to-have */
+      setFilesError(null);
+    } catch (err) {
+      setFilesError(errorMessage(err));
     } finally {
       setUsageLoading(false);
     }
@@ -1485,11 +1544,12 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
         )}
       </div>
 
-      <div className="flex flex-col md:h-[calc(100vh-15rem)] md:min-h-[560px] md:flex-row">
+      <div className="flex flex-col lg:h-[calc(100vh-15rem)] lg:min-h-[560px] lg:flex-row">
         <NavigationPane
           databases={databases}
           usage={usage}
           files={files}
+          filesError={filesError}
           snapshots={snapshots}
           loadSnapshot={(file, refresh) => void loadSnapshot(file, refresh)}
           isAdmin={isAdmin}

@@ -32,6 +32,7 @@ export function classifyLocalFile(
   plugin: string,
   recipe: { name: string; state: RecipeState | null } | null,
   configText: string | null,
+  configName = 'config.yml',
 ): { status: LocalDatabaseStatus; note: string } {
   if (recipe?.state?.storage === 'mysql') {
     return {
@@ -45,10 +46,12 @@ export function classifyLocalFile(
     return { status: 'in-use', note: `${recipe.name} stores its data in local files${detail}.` };
   }
   if (configText && configText.toLowerCase().includes(fileName.toLowerCase())) {
-    return { status: 'in-use', note: `${plugin}'s config.yml mentions this file.` };
+    return { status: 'in-use', note: `${plugin}'s ${configName} mentions this file.` };
   }
   return {
     status: 'unreferenced',
-    note: `${plugin}'s config doesn't mention this file. The plugin probably uses it by default, or it's left over.`,
+    note: configText
+      ? `${plugin}'s ${configName} doesn't mention this file. The plugin probably uses it by default, or it's left over.`
+      : `${plugin} has no config file that mentions it. The plugin probably uses it by default, or it's left over.`,
   };
 }

@@ -272,6 +272,10 @@ export interface DatabaseUsageIndex {
   scannedAt: string;
   /** Servers whose plugins couldn't be scanned. */
   failedServers: number;
+  scannedServers: number;
+  scannedFolders: number;
+  /** Admins only: what couldn't be read during the scan. */
+  problems: Array<{ serverName: string; folder: string | null; error: string }>;
 }
 
 export interface DatabaseLockServer {

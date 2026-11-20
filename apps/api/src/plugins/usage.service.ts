@@ -16,15 +16,30 @@ export interface UsageEntry {
   configFile: string;
 }
 
+export interface ScanProblem {
+  serverName: string;
+  /** Plugin folder, or null when the whole server couldn't be scanned. */
+  folder: string | null;
+  error: string;
+}
+
 export interface UsageIndex {
   at: number;
   entries: UsageEntry[];
   /** SQLite/H2 files found in plugin folders. */
   files: LocalDatabaseFile[];
   failedServers: number;
+  scannedServers: number;
+  scannedFolders: number;
+  /** What couldn't be read, so missing results aren't silent. */
+  problems: ScanProblem[];
 }
 
+const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 300);
+
 const SERVER_CONCURRENCY = 3;
+/** Config files checked for a mention of a database file, in order. */
+const CONFIG_FILES = ['config.yml', 'config.yaml', 'config.properties', 'config.json', 'settings.yml'];
 const FOLDER_CONCURRENCY = 2;
 /** Folders in /plugins that aren't plugins. */
 const IGNORED_FOLDERS = new Set(['bstats', 'pluginmetrics', 'update', '.paper-remapped', 'spark']);
@@ -68,33 +83,47 @@ export class DatabaseUsageService {
     const servers = await this.servers.allServers();
     const entries: UsageEntry[] = [];
     const files: LocalDatabaseFile[] = [];
+    const problems: ScanProblem[] = [];
     let failedServers = 0;
+    let scannedServers = 0;
+    let scannedFolders = 0;
     await mapLimited(servers, SERVER_CONCURRENCY, async (server) => {
       try {
-        const result = await this.scanServer(server.identifier, server.name);
+        const result = await this.scanServer(server.identifier, server.name, problems);
         entries.push(...result.entries);
         files.push(...result.files);
+        scannedFolders += result.folders;
+        scannedServers += 1;
       } catch (error) {
         failedServers += 1;
-        this.logger.warn(`Couldn't scan plugins on ${server.name}: ${(error as Error).message}`);
+        problems.push({ serverName: server.name, folder: null, error: describe(error) });
+        this.logger.warn(`Couldn't scan plugins on ${server.name}: ${describe(error)}`);
       }
     });
     files.sort((a, b) => a.serverName.localeCompare(b.serverName) || a.path.localeCompare(b.path));
-    this.index = { at: Date.now(), entries, files, failedServers };
+    if (problems.length > 0) this.logger.warn(`Plugin scan: ${problems.length} folder(s)/server(s) couldn't be read.`);
+    this.index = { at: Date.now(), entries, files, failedServers, scannedServers, scannedFolders, problems };
     return this.index;
   }
 
-  private async scanServer(identifier: string, serverName: string) {
+  private async scanServer(identifier: string, serverName: string, problems: ScanProblem[]) {
     const root = await this.ptero.listFiles(identifier, '/');
-    if (!root.some((entry) => !entry.is_file && entry.name === 'plugins')) return { entries: [], files: [] };
+    if (!root.some((entry) => !entry.is_file && entry.name === 'plugins')) return { entries: [], files: [], folders: 0 };
     const folders = (await this.ptero.listFiles(identifier, '/plugins'))
       .filter((entry) => !entry.is_file && !entry.name.startsWith('.') && !IGNORED_FOLDERS.has(entry.name.toLowerCase()))
       .map((entry) => entry.name);
 
     const results = await mapLimited(folders, FOLDER_CONCURRENCY, (folder) =>
-      this.scanFolder(identifier, serverName, folder).catch(() => ({ entries: [], files: [] })),
+      this.scanFolder(identifier, serverName, folder).catch((error: unknown) => {
+        problems.push({ serverName, folder, error: describe(error) });
+        return { entries: [], files: [] };
+      }),
     );
-    return { entries: results.flatMap((result) => result.entries), files: results.flatMap((result) => result.files) };
+    return {
+      entries: results.flatMap((result) => result.entries),
+      files: results.flatMap((result) => result.files),
+      folders: folders.length,
+    };
   }
 
   private async read(identifier: string, path: string, entry: PteroFileObject | undefined): Promise<string | null> {
@@ -153,8 +182,13 @@ export class DatabaseUsageService {
       }
     }
     let configText: string | null = null;
+    let configName = 'config.yml';
     if (!recipe && found.length > 0) {
-      configText = await this.read(identifier, `${base}/config.yml`, listing.find((entry) => entry.name === 'config.yml'));
+      const config = CONFIG_FILES.map((name) => listing.find((entry) => entry.is_file && entry.name === name)).find(Boolean);
+      if (config) {
+        configName = config.name;
+        configText = await this.read(identifier, `${base}/${config.name}`, config);
+      }
     }
 
     const files = found.map(({ dir, file }): LocalDatabaseFile => {
@@ -164,6 +198,7 @@ export class DatabaseUsageService {
         folder,
         recipe ? { name: recipe.name.split(' (')[0]!, state } : null,
         configText,
+        configName,
       );
       return {
         key: fileKey(path),
