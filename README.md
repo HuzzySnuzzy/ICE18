@@ -42,7 +42,7 @@ Deleting servers is still never done by ICE18; remove servers you no longer want
 4. **Fill in the database fields** (*Admin → Servers →* the server *→ Startup*): host, name, username and password, copied from the *Databases* tab. Paste the password as-is.
    If the host shows as `127.0.0.1` or `localhost`, use `172.18.0.1` instead (the Pterodactyl network gateway): inside a server, `127.0.0.1` is the container itself. MySQL must also listen on that address (`bind-address = 0.0.0.0` or `172.18.0.1`).
 5. **Connect Pterodactyl.** Create two API keys and fill in *Pterodactyl URL* and both keys on the same Startup page:
-   - *Admin → Application API*: a key with **read** access to Servers, Users, Nodes, Locations, Nests and Eggs. ICE18 only ever reads with it.
+   - *Admin → Application API*: a key with **read** access to Nodes, Locations, Nests and Eggs, and **read & write** access to Servers and Users. Write is only used by prefabs and the store, to create users and servers and to suspend/unsuspend servers; ICE18 never deletes or edits them. (Read-only works too if you don't use prefabs or the store.)
    - *Account → API Credentials* on a **root admin** account: used for power actions and consoles.
 6. **Start the server**, open `http://NODE-IP:PORT` and create your admin account.
 

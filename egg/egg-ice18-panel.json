@@ -150,7 +150,7 @@
         },
         {
             "name": "Pterodactyl application key",
-            "description": "Admin -> Application API key with read access to servers, users, nodes, locations, nests and eggs.",
+            "description": "Admin -> Application API key. Read: Nodes, Locations, Nests, Eggs. Read & write: Servers and Users (only needed for prefabs and the store: creating and suspending servers).",
             "env_variable": "PTERODACTYL_APP_KEY",
             "default_value": "",
             "user_viewable": false,
