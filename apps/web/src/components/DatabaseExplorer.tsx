@@ -29,6 +29,19 @@ const Icon = {
       <path d="M2.5 3.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2" />
     </svg>
   ),
+  server: (
+    <svg viewBox="0 0 16 16" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="2" y="2.5" width="12" height="4.5" rx="1" />
+      <rect x="2" y="9" width="12" height="4.5" rx="1" />
+      <path d="M4.5 4.75h.01M4.5 11.25h.01" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  ),
+  file: (
+    <svg viewBox="0 0 16 16" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M4 1.5h5.5L12.5 4.5v10H4z" />
+      <path d="M9.5 1.5v3h3M6 8.5c0 .8 1 1.25 2 1.25s2-.45 2-1.25-1-1.25-2-1.25-2 .45-2 1.25zM6 8.5v3c0 .8 1 1.25 2 1.25s2-.45 2-1.25v-3" />
+    </svg>
+  ),
   table: (
     <svg viewBox="0 0 16 16" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.3">
       <rect x="1.5" y="2.5" width="13" height="11" rx="1" />
@@ -951,7 +964,156 @@ function FileInfo({ file, snapshot }: { file: LocalDatabaseFile; snapshot: Local
   );
 }
 
-// ---------- navigation pane ----------
+// ---------- navigation pane (server tree) ----------
+
+const fileObjectKey = (file: LocalDatabaseFile) => `file:${file.serverIdentifier}/${file.key}`;
+/** Expanded-state keys: servers, and each database/file node under a given server. */
+const serverNodeKey = (identifier: string) => `srv:${identifier}`;
+const childNodeKey = (serverIdentifier: string, key: string) => `${serverIdentifier}>${key}`;
+
+type ServerItem =
+  | { kind: 'mysql'; database: PanelDatabase; owned: boolean; plugins: string[] }
+  | { kind: 'file'; file: LocalDatabaseFile }
+  | { kind: 'external'; databaseName: string; host: string | null; plugins: string[] };
+
+interface ServerNode {
+  identifier: string;
+  name: string;
+  items: ServerItem[];
+}
+
+/** Groups everything by server: databases it owns, databases its plugins use, its local files. */
+function buildServerTree(
+  databases: PanelDatabase[],
+  usage: DatabaseUsageIndex | null,
+  files: LocalDatabaseFile[] | null,
+): ServerNode[] {
+  const servers = new Map<string, ServerNode>();
+  const node = (identifier: string, name: string) => {
+    let entry = servers.get(identifier);
+    if (!entry) {
+      entry = { identifier, name, items: [] };
+      servers.set(identifier, entry);
+    }
+    return entry;
+  };
+  const byName = new Map(databases.map((database) => [database.name, database]));
+  const external = new Set((usage?.unmanaged ?? []).map((entry) => entry.databaseName));
+
+  for (const database of databases) {
+    node(database.serverIdentifier, database.serverName).items.push({ kind: 'mysql', database, owned: true, plugins: [] });
+  }
+  for (const entry of usage?.usages ?? []) {
+    if (!entry.serverIdentifier) continue;
+    const server = node(entry.serverIdentifier, entry.serverName);
+    const database = byName.get(entry.databaseName);
+    if (database) {
+      let item = server.items.find((candidate) => candidate.kind === 'mysql' && candidate.database === database);
+      if (!item) {
+        item = { kind: 'mysql', database, owned: false, plugins: [] };
+        server.items.push(item);
+      }
+      if (item.kind === 'mysql' && !item.plugins.includes(entry.plugin)) item.plugins.push(entry.plugin);
+    } else if (external.has(entry.databaseName)) {
+      let item = server.items.find((candidate) => candidate.kind === 'external' && candidate.databaseName === entry.databaseName);
+      if (!item) {
+        item = { kind: 'external', databaseName: entry.databaseName, host: entry.host, plugins: [] };
+        server.items.push(item);
+      }
+      if (item.kind === 'external' && !item.plugins.includes(entry.plugin)) item.plugins.push(entry.plugin);
+    }
+  }
+  for (const file of files ?? []) node(file.serverIdentifier, file.serverName).items.push({ kind: 'file', file });
+
+  const order = (item: ServerItem) => (item.kind === 'mysql' ? (item.owned ? 0 : 1) : item.kind === 'file' ? 2 : 3);
+  const label = (item: ServerItem) => (item.kind === 'mysql' ? item.database.name : item.kind === 'file' ? item.file.path : item.databaseName);
+  for (const server of servers.values()) server.items.sort((a, b) => order(a) - order(b) || label(a).localeCompare(label(b)));
+  return [...servers.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function TableList({
+  tables,
+  activePrefix,
+  activeId,
+  needle,
+  onOpen,
+  onRetry,
+  loadingText,
+}: {
+  tables: DbTable[] | string | undefined;
+  activePrefix: string;
+  activeId: string | null;
+  needle: string;
+  onOpen: (table: DbTable) => void;
+  onRetry: () => void;
+  loadingText: string;
+}) {
+  if (tables === undefined) {
+    return (
+      <div className="flex items-center gap-2 py-1.5 pl-14 text-xs text-ink-400">
+        <Spinner className="size-3" /> {loadingText}
+      </div>
+    );
+  }
+  if (typeof tables === 'string') {
+    return (
+      <div className="py-1 pr-3 pl-14 text-xs text-red-300">
+        {tables}{' '}
+        <button type="button" className="text-ice-400 underline" onClick={onRetry}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+  const visible = tables.filter((table) => !needle || table.name.toLowerCase().includes(needle));
+  const list = visible.length > 0 ? visible : tables;
+  if (list.length === 0) return <div className="py-1 pl-14 text-xs text-ink-500">No tables.</div>;
+  return (
+    <>
+      {(['table', 'view'] as const).map((type) => {
+        const items = list.filter((table) => table.type === type);
+        if (items.length === 0) return null;
+        return (
+          <div key={type}>
+            <div className="py-0.5 pl-14 text-[10px] tracking-wide text-ink-500 uppercase">{type === 'table' ? 'Tables' : 'Views'}</div>
+            {items.map((table) => (
+              <button
+                key={table.name}
+                type="button"
+                onClick={() => onOpen(table)}
+                className={cx(
+                  'flex w-full items-center gap-1.5 py-2 pr-3 pl-14 text-left text-sm lg:py-0.5 lg:pr-2 lg:text-xs',
+                  activeId === `${activePrefix}/${table.name}` ? 'bg-ice-500/20 text-ice-100' : 'text-ink-200 hover:bg-ink-800',
+                )}
+                title={table.comment || table.name}
+              >
+                <span className="text-ink-400">{type === 'view' ? Icon.view : Icon.table}</span>
+                <span className="truncate">{table.name}</span>
+                {table.rows !== null && <span className="ml-auto pl-2 text-[10px] text-ink-500 tabular-nums">{table.rows.toLocaleString()}</span>}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function Chevron({ open, onClick, disabled, title }: { open: boolean; onClick: () => void; disabled?: boolean; title?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="-my-1 shrink-0 rounded p-2 text-ink-400 hover:text-ink-100 disabled:opacity-30 lg:my-0 lg:mt-0.5 lg:p-0.5"
+      aria-label={open ? 'Collapse' : 'Expand'}
+      aria-expanded={open}
+      disabled={disabled}
+      title={title}
+    >
+      {Icon.chevron(open)}
+    </button>
+  );
+}
 
 function NavigationPane({
   className,
@@ -963,7 +1125,6 @@ function NavigationPane({
   filesError,
   snapshots,
   loadSnapshot,
-  isAdmin,
   expanded,
   setExpanded,
   onOpen,
@@ -1001,194 +1162,248 @@ function NavigationPane({
     }
   }, []);
 
+  const tree = useMemo(() => buildServerTree(databases, usage, files), [databases, usage, files]);
+
+  // Load tables / snapshots for whatever is expanded, once each (retries go through onRetry).
+  const requested = useRef(new Set<string>());
   useEffect(() => {
-    for (const database of databases) {
-      const key = databaseKey(database);
-      if (expanded[key] && database.canBrowse && tables[key] === undefined) void loadTables(database);
+    for (const server of tree) {
+      for (const item of server.items) {
+        if (item.kind === 'mysql') {
+          const key = databaseKey(item.database);
+          if (expanded[childNodeKey(server.identifier, key)] && item.database.canBrowse && !requested.current.has(key)) {
+            requested.current.add(key);
+            void loadTables(item.database);
+          }
+        } else if (item.kind === 'file' && item.file.kind === 'sqlite') {
+          const key = fileObjectKey(item.file);
+          if (expanded[childNodeKey(server.identifier, key)] && snapshots[key] === undefined && !requested.current.has(key)) {
+            requested.current.add(key);
+            loadSnapshot(item.file);
+          }
+        }
+      }
     }
-  }, [databases, expanded, tables, loadTables]);
+  }, [tree, expanded, snapshots, loadTables, loadSnapshot]);
 
   const needle = filter.trim().toLowerCase();
-  const usageFor = (name: string) => usage?.usages.filter((entry) => entry.databaseName === name) ?? [];
-  const matches = (database: PanelDatabase) => {
+  const has = (...values: Array<string | null | undefined>) => values.some((value) => value?.toLowerCase().includes(needle));
+  const itemMatches = (item: ServerItem) => {
     if (!needle) return true;
-    const list = tables[databaseKey(database)];
-    return [
-      database.name,
-      database.serverName,
-      ...usageFor(database.name).flatMap((entry) => [entry.serverName, entry.plugin]),
-      ...(Array.isArray(list) ? list.map((table) => table.name) : []),
-    ].some((value) => value.toLowerCase().includes(needle));
+    if (item.kind === 'mysql') {
+      const list = tables[databaseKey(item.database)];
+      return has(item.database.name, item.database.serverName, ...item.plugins, ...(Array.isArray(list) ? list.map((table) => table.name) : []));
+    }
+    if (item.kind === 'file') {
+      const snapshot = snapshots[fileObjectKey(item.file)];
+      return has(item.file.name, item.file.plugin, ...(snapshot && typeof snapshot !== 'string' ? snapshot.tables.map((table) => table.name) : []));
+    }
+    return has(item.databaseName, ...item.plugins);
   };
+  const visibleTree = tree
+    .map((server) => ({ ...server, items: has(server.name) ? server.items : server.items.filter(itemMatches) }))
+    .filter((server) => server.items.length > 0);
 
-  const hosts = new Map<string, PanelDatabase[]>();
-  for (const database of databases.filter(matches)) {
-    const host = `${database.pluginHost}:${database.port}`;
-    hosts.set(host, [...(hosts.get(host) ?? []), database]);
-  }
-  const unmanaged = (usage?.unmanaged ?? []).filter(
-    (entry) => !needle || entry.databaseName.toLowerCase().includes(needle) || usageFor(entry.databaseName).some((u) => u.serverName.toLowerCase().includes(needle)),
-  );
+  const toggle = (key: string) => setExpanded((current) => ({ ...current, [key]: !current[key] }));
+  const allOpen = tree.length > 0 && tree.every((server) => expanded[serverNodeKey(server.identifier)]);
 
   return (
     <aside className={cx('min-h-0 flex-col bg-ink-900 lg:w-72 lg:shrink-0 lg:border-r lg:border-ink-700', className)}>
       <div className="border-b border-ink-700 px-3 py-2">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-semibold tracking-wide text-ink-300 uppercase">All Databases</div>
-          <button
-            type="button"
-            onClick={onRescan}
-            disabled={usageLoading}
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-ice-400 active:bg-ink-800 disabled:opacity-50 lg:hidden"
-          >
-            {usageLoading ? <Spinner className="size-3" /> : '⟳'} Rescan
-          </button>
+          <div className="text-xs font-semibold tracking-wide text-ink-300 uppercase">Servers</div>
+          <div className="flex items-center gap-1">
+            {tree.length > 1 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setExpanded((current) => {
+                    const next = { ...current };
+                    for (const server of tree) next[serverNodeKey(server.identifier)] = !allOpen;
+                    return next;
+                  })
+                }
+                className="rounded-lg px-2 py-1 text-xs font-medium text-ink-400 hover:text-ink-200 active:bg-ink-800"
+              >
+                {allOpen ? 'Collapse all' : 'Expand all'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onRescan}
+              disabled={usageLoading}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-ice-400 active:bg-ink-800 disabled:opacity-50 lg:hidden"
+            >
+              {usageLoading ? <Spinner className="size-3" /> : '⟳'} Rescan
+            </button>
+          </div>
         </div>
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Search databases, servers, plugins…"
+          placeholder="Search servers, databases, plugins…"
           className="mt-2 w-full rounded-lg border border-ink-600 bg-ink-950 px-3 py-2 text-base text-ink-100 placeholder:text-ink-500 focus:border-ice-500 focus:outline-none lg:rounded lg:px-2 lg:py-1 lg:text-xs"
         />
       </div>
+
       <div className="min-h-0 flex-1 overflow-auto py-1 text-sm">
-        {databases.length === 0 && (
+        {tree.length === 0 && (
           <p className="px-3 py-2 text-xs text-ink-400">
-            No databases yet. Create one from a server's <b>Plugins &amp; databases</b> tab.
+            {usageLoading ? 'Scanning your servers…' : "No databases yet. Create one from a server's Plugins & databases tab."}
           </p>
         )}
-        {[...hosts.entries()].map(([host, list]) => (
-          <div key={host} className="mb-1">
-            <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase" title="Database host">
-              <span className="font-mono normal-case">{host}</span>
-            </div>
-            {list.map((database) => {
-              const key = databaseKey(database);
-              const open = expanded[key] ?? false;
-              const tableList = tables[key];
-              const users = usageFor(database.name);
-              const otherServers = new Set(users.filter((entry) => entry.serverIdentifier !== database.serverIdentifier).map((entry) => entry.serverName));
-              const visibleTables = Array.isArray(tableList)
-                ? tableList.filter((table) => !needle || table.name.toLowerCase().includes(needle) || matches(database))
-                : [];
-              return (
-                <div key={key}>
-                  <div
-                    className={cx(
-                      'flex w-full items-start gap-1 px-2 py-2 hover:bg-ink-800 lg:py-1',
-                      activeId === `${key}/` && 'bg-ice-500/15',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
-                      className="-my-1 rounded p-2 text-ink-400 hover:text-ink-100 disabled:opacity-30 lg:my-0 lg:mt-0.5 lg:p-0.5"
-                      aria-label={open ? 'Collapse' : 'Expand'}
-                      disabled={!database.canBrowse}
-                    >
-                      {Icon.chevron(open)}
-                    </button>
-                    <button type="button" onClick={() => onOpen(database)} className="flex min-w-0 flex-1 items-start gap-1.5 text-left">
-                      <span className="mt-0.5 text-ice-300">{Icon.database}</span>
-                      <span className="min-w-0">
-                        <span className="block truncate font-mono text-sm text-ink-100 lg:text-xs">{database.name}</span>
-                        <span className="block truncate text-[11px] text-ink-500">
-                          {database.serverName}
-                          {otherServers.size > 0 && ` · also used by ${otherServers.size} other server${otherServers.size === 1 ? '' : 's'}`}
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                  {open && (
-                    <div className="pb-1">
-                      {tableList === undefined && (
-                        <div className="flex items-center gap-2 py-1 pl-10 text-xs text-ink-400">
-                          <Spinner className="size-3" /> Loading…
-                        </div>
-                      )}
-                      {typeof tableList === 'string' && (
-                        <div className="px-3 py-1 pl-10 text-xs text-red-300">
-                          {tableList}{' '}
-                          <button type="button" className="text-ice-400 underline" onClick={() => void loadTables(database, true)}>
-                            Retry
+        {filesError && <div className="px-3 py-2 text-xs text-red-300">Couldn't list local database files: {filesError}</div>}
+        {needle && visibleTree.length === 0 && tree.length > 0 && <p className="px-3 py-2 text-xs text-ink-400">Nothing matches “{filter}”.</p>}
+
+        {visibleTree.map((server) => {
+          const serverOpen = Boolean(needle) || (expanded[serverNodeKey(server.identifier)] ?? false);
+          const counts = {
+            mysql: server.items.filter((item) => item.kind === 'mysql').length,
+            files: server.items.filter((item) => item.kind === 'file').length,
+          };
+          return (
+            <div key={server.identifier}>
+              {/* Server */}
+              <div className="flex items-center gap-1 px-1.5 py-1.5 hover:bg-ink-800 lg:py-1">
+                <Chevron open={serverOpen} onClick={() => toggle(serverNodeKey(server.identifier))} />
+                <button
+                  type="button"
+                  onClick={() => toggle(serverNodeKey(server.identifier))}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                  <span className="text-ink-300">{Icon.server}</span>
+                  <span className="truncate font-medium text-ink-100">{server.name}</span>
+                  <span className="ml-auto shrink-0 pl-2 text-[10px] text-ink-500 tabular-nums">
+                    {[counts.mysql && `${counts.mysql} db`, counts.files && `${counts.files} file${counts.files === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
+                  </span>
+                </button>
+                <Link
+                  to={`/servers/${server.identifier}`}
+                  className="shrink-0 rounded px-1.5 py-1 text-xs text-ink-500 hover:bg-ink-700 hover:text-ink-200"
+                  title={`Open ${server.name}`}
+                  aria-label={`Open ${server.name}`}
+                >
+                  ↗
+                </Link>
+              </div>
+
+              {serverOpen &&
+                server.items.map((item) => {
+                  if (item.kind === 'mysql') {
+                    const { database } = item;
+                    const key = databaseKey(database);
+                    const nodeKey = childNodeKey(server.identifier, key);
+                    const open = expanded[nodeKey] ?? false;
+                    const subtitle = item.owned
+                      ? ['owner', ...item.plugins].join(' · ')
+                      : `owned by ${database.serverName}${item.plugins.length ? ` · ${item.plugins.join(', ')}` : ''}`;
+                    return (
+                      <div key={`m:${key}`}>
+                        <div className={cx('flex items-start gap-1 py-2 pr-2 pl-5 hover:bg-ink-800 lg:py-1', activeId === `${key}/` && 'bg-ice-500/15')}>
+                          <Chevron open={open} onClick={() => toggle(nodeKey)} disabled={!database.canBrowse} title={database.canBrowse ? undefined : 'No permission to open its tables'} />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (database.canBrowse) setExpanded((current) => ({ ...current, [nodeKey]: true }));
+                              onOpen(database);
+                            }}
+                            className="flex min-w-0 flex-1 items-start gap-1.5 text-left"
+                            title={`${database.pluginHost}:${database.port}`}
+                          >
+                            <span className={cx('mt-0.5', item.owned ? 'text-ice-300' : 'text-ice-300/60')}>{Icon.database}</span>
+                            <span className="min-w-0">
+                              <span className="block truncate font-mono text-sm text-ink-100 lg:text-xs">{database.name}</span>
+                              <span className="block truncate text-[11px] text-ink-500">{subtitle}</span>
+                            </span>
                           </button>
                         </div>
-                      )}
-                      {(['table', 'view'] as const).map((type) => {
-                        const items = visibleTables.filter((table) => table.type === type);
-                        if (items.length === 0) return null;
-                        return (
-                          <div key={type}>
-                            <div className="py-0.5 pl-10 text-[10px] tracking-wide text-ink-500 uppercase">{type === 'table' ? 'Tables' : 'Views'}</div>
-                            {items.map((table) => (
-                              <button
-                                key={table.name}
-                                type="button"
-                                onClick={() => onOpen(database, table)}
-                                className={cx(
-                                  'flex w-full items-center gap-1.5 py-2 pr-3 pl-10 text-left text-sm lg:py-0.5 lg:pr-2 lg:text-xs',
-                                  activeId === `${key}/${table.name}` ? 'bg-ice-500/20 text-ice-100' : 'text-ink-200 hover:bg-ink-800',
-                                )}
-                                title={table.comment || table.name}
-                              >
-                                <span className="text-ink-400">{type === 'view' ? Icon.view : Icon.table}</span>
-                                <span className="truncate">{table.name}</span>
-                                {table.rows !== null && (
-                                  <span className="ml-auto pl-2 text-[10px] text-ink-500 tabular-nums">{table.rows.toLocaleString()}</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        );
-                      })}
-                      {Array.isArray(tableList) && tableList.length === 0 && <div className="py-1 pl-10 text-xs text-ink-500">No tables yet.</div>}
+                        {open && (
+                          <TableList
+                            tables={tables[key]}
+                            activePrefix={key}
+                            activeId={activeId}
+                            needle={needle && !has(database.name, server.name) ? needle : ''}
+                            onOpen={(table) => onOpen(database, table)}
+                            onRetry={() => void loadTables(database, true)}
+                            loadingText="Loading…"
+                          />
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (item.kind === 'file') {
+                    const { file } = item;
+                    const key = fileObjectKey(file);
+                    const nodeKey = childNodeKey(server.identifier, key);
+                    const open = expanded[nodeKey] ?? false;
+                    const snapshot = snapshots[key];
+                    return (
+                      <div key={key}>
+                        <div className={cx('flex items-start gap-1 py-2 pr-2 pl-5 hover:bg-ink-800 lg:py-1', activeId === `${key}/` && 'bg-ice-500/15')}>
+                          <Chevron
+                            open={open}
+                            onClick={() => toggle(nodeKey)}
+                            disabled={file.kind !== 'sqlite'}
+                            title={file.kind !== 'sqlite' ? "H2 files can't be opened" : undefined}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (file.kind === 'sqlite') setExpanded((current) => ({ ...current, [nodeKey]: true }));
+                              onOpenFile(file);
+                            }}
+                            className="flex min-w-0 flex-1 items-start gap-1.5 text-left"
+                            title={file.path}
+                          >
+                            <span className={cx('mt-0.5', file.kind === 'sqlite' ? 'text-ink-300' : 'text-ink-500')}>{Icon.file}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-mono text-sm text-ink-100 lg:text-xs">{file.name}</span>
+                              <span className="flex items-center gap-1.5 text-[11px] text-ink-500">
+                                <span className="truncate">
+                                  {file.plugin} · {formatBytes(file.size)}
+                                </span>
+                                <FileStatus file={file} />
+                              </span>
+                            </span>
+                          </button>
+                        </div>
+                        {open && (
+                          <TableList
+                            tables={snapshot === undefined ? undefined : typeof snapshot === 'string' ? snapshot : snapshot.tables}
+                            activePrefix={key}
+                            activeId={activeId}
+                            needle={needle && !has(file.name, server.name) ? needle : ''}
+                            onOpen={(table) => onOpenFile(file, table)}
+                            onRetry={() => loadSnapshot(file, true)}
+                            loadingText="Downloading snapshot…"
+                          />
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={`x:${item.databaseName}`}
+                      className="flex items-start gap-1.5 py-2 pr-2 pl-12 lg:py-1"
+                      title="Plugins point at this database, but Pterodactyl doesn't manage it, so ICE18 can't open it."
+                    >
+                      <span className="mt-0.5 text-ink-500">{Icon.database}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-mono text-sm text-ink-300 lg:text-xs">{item.databaseName}</span>
+                        <span className="block truncate text-[11px] text-ink-500">
+                          external{item.host ? ` (${item.host})` : ''} · {item.plugins.join(', ')}
+                        </span>
+                      </span>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-
-        {filesError && (
-          <div className="mt-2 border-t border-ink-700 px-3 pt-2 text-xs text-red-300">Couldn't list local database files: {filesError}</div>
-        )}
-        {files && files.length > 0 && (
-          <LocalFilesSection
-            files={files.filter(
-              (file) => !needle || [file.name, file.plugin, file.serverName].some((value) => value.toLowerCase().includes(needle)),
-            )}
-            snapshots={snapshots}
-            loadSnapshot={loadSnapshot}
-            expanded={expanded}
-            setExpanded={setExpanded}
-            onOpenFile={onOpenFile}
-            activeId={activeId}
-          />
-        )}
-
-        {isAdmin && unmanaged.length > 0 && (
-          <div className="mt-2 border-t border-ink-700 pt-1">
-            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase" title="Plugins point at these, but Pterodactyl doesn't manage them">
-              Not managed by Pterodactyl
+                  );
+                })}
             </div>
-            {unmanaged.map((entry) => {
-              const users = usageFor(entry.databaseName);
-              return (
-                <div key={`${entry.databaseName}@${entry.host}`} className="px-3 py-1" title={users.map((u) => `${u.serverName}: ${u.plugin}`).join('\n')}>
-                  <div className="flex items-center gap-1.5 text-ink-300">
-                    <span className="text-ink-500">{Icon.database}</span>
-                    <span className="truncate font-mono text-xs">{entry.databaseName}</span>
-                  </div>
-                  <div className="truncate pl-5.5 text-[11px] text-ink-500">
-                    {entry.host ?? '?'} · used by {[...new Set(users.map((u) => u.serverName))].join(', ')}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+          );
+        })}
       </div>
+
       {usage && (
         <div className="border-t border-ink-700 px-3 py-1.5 text-[10px] text-ink-500">
           Scanned {formatDate(usage.scannedAt)} · {usage.scannedServers} server{usage.scannedServers === 1 ? '' : 's'} ·{' '}
@@ -1214,123 +1429,6 @@ function NavigationPane({
         </div>
       )}
     </aside>
-  );
-}
-
-const fileObjectKey = (file: LocalDatabaseFile) => `file:${file.serverIdentifier}/${file.key}`;
-
-function LocalFilesSection({
-  files,
-  snapshots,
-  loadSnapshot,
-  expanded,
-  setExpanded,
-  onOpenFile,
-  activeId,
-}: {
-  files: LocalDatabaseFile[];
-  snapshots: Record<string, LocalDatabaseSnapshot | string>;
-  loadSnapshot: (file: LocalDatabaseFile, refresh?: boolean) => void;
-  expanded: Record<string, boolean>;
-  setExpanded: (update: (current: Record<string, boolean>) => Record<string, boolean>) => void;
-  onOpenFile: (file: LocalDatabaseFile, table?: DbTable) => void;
-  activeId: string | null;
-}) {
-  const byServer = new Map<string, LocalDatabaseFile[]>();
-  for (const file of files) byServer.set(file.serverName, [...(byServer.get(file.serverName) ?? []), file]);
-
-  useEffect(() => {
-    for (const file of files) {
-      const key = fileObjectKey(file);
-      if (expanded[key] && file.kind === 'sqlite' && snapshots[key] === undefined) loadSnapshot(file);
-    }
-  }, [files, expanded, snapshots, loadSnapshot]);
-
-  return (
-    <div className="mt-2 border-t border-ink-700 pt-1">
-      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase" title="SQLite and H2 files inside plugin folders">
-        Local database files
-      </div>
-      {[...byServer.entries()].map(([serverName, list]) => (
-        <div key={serverName} className="mb-1">
-          <div className="truncate px-3 pt-1 text-[11px] text-ink-400">{serverName}</div>
-          {list.map((file) => {
-            const key = fileObjectKey(file);
-            const open = expanded[key] ?? false;
-            const snapshot = snapshots[key];
-            return (
-              <div key={key}>
-                <div className={cx('flex items-start gap-1 px-2 py-2 hover:bg-ink-800 lg:py-1', activeId === `${key}/` && 'bg-ice-500/15')}>
-                  <button
-                    type="button"
-                    onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
-                    className="-my-1 rounded p-2 text-ink-400 hover:text-ink-100 disabled:opacity-30 lg:my-0 lg:mt-0.5 lg:p-0.5"
-                    aria-label={open ? 'Collapse' : 'Expand'}
-                    disabled={file.kind !== 'sqlite'}
-                    title={file.kind !== 'sqlite' ? "H2 files can't be opened" : undefined}
-                  >
-                    {Icon.chevron(open)}
-                  </button>
-                  <button type="button" onClick={() => onOpenFile(file)} className="flex min-w-0 flex-1 items-start gap-1.5 text-left" title={file.path}>
-                    <span className={cx('mt-0.5', file.kind === 'sqlite' ? 'text-ink-300' : 'text-ink-500')}>{Icon.database}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate font-mono text-sm text-ink-100 lg:text-xs">{file.name}</span>
-                      </span>
-                      <span className="flex items-center gap-1.5 text-[11px] text-ink-500">
-                        <span className="truncate">
-                          {file.plugin} · {formatBytes(file.size)}
-                        </span>
-                        <FileStatus file={file} />
-                      </span>
-                    </span>
-                  </button>
-                </div>
-                {open && (
-                  <div className="pb-1">
-                    {snapshot === undefined && (
-                      <div className="flex items-center gap-2 py-1 pl-10 text-xs text-ink-400">
-                        <Spinner className="size-3" /> Downloading snapshot…
-                      </div>
-                    )}
-                    {typeof snapshot === 'string' && (
-                      <div className="px-3 py-1 pl-10 text-xs text-red-300">
-                        {snapshot}{' '}
-                        <button type="button" className="text-ice-400 underline" onClick={() => loadSnapshot(file, true)}>
-                          Retry
-                        </button>
-                      </div>
-                    )}
-                    {snapshot && typeof snapshot !== 'string' && (
-                      <>
-                        {snapshot.tables.length === 0 && <div className="py-1 pl-10 text-xs text-ink-500">No tables.</div>}
-                        {snapshot.tables.map((table) => (
-                          <button
-                            key={table.name}
-                            type="button"
-                            onClick={() => onOpenFile(file, table)}
-                            className={cx(
-                              'flex w-full items-center gap-1.5 py-2 pr-3 pl-10 text-left text-sm lg:py-0.5 lg:pr-2 lg:text-xs',
-                              activeId === `${key}/${table.name}` ? 'bg-ice-500/20 text-ice-100' : 'text-ink-200 hover:bg-ink-800',
-                            )}
-                          >
-                            <span className="text-ink-400">{table.type === 'view' ? Icon.view : Icon.table}</span>
-                            <span className="truncate">{table.name}</span>
-                            {table.rows !== null && (
-                              <span className="ml-auto pl-2 text-[10px] text-ink-500 tabular-nums">{table.rows.toLocaleString()}</span>
-                            )}
-                          </button>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -1452,7 +1550,11 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
     );
     setActiveId(id);
     showObjectOnPhone();
-    if (file.kind === 'sqlite') setExpanded((current) => ({ ...current, [key]: true }));
+    setExpanded((current) => ({
+      ...current,
+      [serverNodeKey(file.serverIdentifier)]: true,
+      ...(file.kind === 'sqlite' ? { [childNodeKey(file.serverIdentifier, key)]: true } : {}),
+    }));
   }, [showObjectOnPhone]);
 
   const openDatabase = useCallback((database: PanelDatabase, table?: DbTable) => {
@@ -1476,7 +1578,11 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
     );
     setActiveId(id);
     showObjectOnPhone();
-    if (database.canBrowse) setExpanded((current) => ({ ...current, [key]: true }));
+    setExpanded((current) => ({
+      ...current,
+      [serverNodeKey(database.serverIdentifier)]: true,
+      ...(database.canBrowse ? { [childNodeKey(database.serverIdentifier, key)]: true } : {}),
+    }));
   }, [showObjectOnPhone]);
 
   // Deep link: /databases?db=<server>/<databaseId>
@@ -1716,8 +1822,8 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
                 'No databases yet.'
               ) : (
                 <>
-                  <span>Click a database to see where it lives and which servers use it.</span>
-                  <span>Expand it to open its tables.</span>
+                  <span>Expand a server to see the databases it owns and uses.</span>
+                  <span>Click a database to see where it lives; expand it to open its tables.</span>
                 </>
               )}
             </div>
