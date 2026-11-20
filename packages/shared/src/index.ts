@@ -29,10 +29,23 @@ export const SERVER_PERMISSIONS = [
   'control.restart',
   'file.read',
   'file.read-content',
+  'file.create',
   'file.update',
+  'file.delete',
+  'file.archive',
   'database.read',
   'database.create',
   'database.view_password',
+  'user.read',
+  'user.create',
+  'user.update',
+  'user.delete',
+  'startup.read',
+  'startup.update',
+  'settings.rename',
+  'allocation.read',
+  'allocation.create',
+  'allocation.update',
 ] as const;
 export type ServerPermission = (typeof SERVER_PERMISSIONS)[number];
 
@@ -325,4 +338,60 @@ export interface LocalDatabaseSnapshot {
   takenAt: string;
   size: number;
   tables: DbTable[];
+}
+
+// ---- File manager ----
+
+export interface FileEntry {
+  name: string;
+  isFile: boolean;
+  isSymlink: boolean;
+  size: number;
+  mimetype: string;
+  modifiedAt: string | null;
+  mode: string;
+}
+
+// ---- Users (subusers) ----
+
+export interface Subuser {
+  uuid: string;
+  username: string;
+  email: string;
+  twoFactor: boolean;
+  createdAt: string | null;
+  permissions: string[];
+}
+
+/** Pterodactyl's permission catalogue, e.g. { control: { description, keys: { start: "..." } } }. */
+export type PermissionCatalogue = Record<string, { description: string; keys: Record<string, string> }>;
+
+// ---- Startup ----
+
+export interface StartupVariable {
+  name: string;
+  description: string;
+  envVariable: string;
+  defaultValue: string;
+  serverValue: string | null;
+  isEditable: boolean;
+  rules: string;
+}
+
+export interface StartupInfo {
+  startupCommand: string;
+  rawStartupCommand: string;
+  dockerImages: Record<string, string>;
+  variables: StartupVariable[];
+}
+
+// ---- Network ----
+
+export interface Allocation {
+  id: number;
+  ip: string;
+  ipAlias: string | null;
+  port: number;
+  notes: string | null;
+  isDefault: boolean;
 }

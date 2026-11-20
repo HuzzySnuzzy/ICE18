@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALLOWED_RULES,
+  MAX_DELETE_ITEMS,
+  SAFE_DB_DOWNLOAD,
   BlockedPterodactylRequestError,
   assertPterodactylRequestAllowed,
   checkPterodactylRequest,
@@ -24,12 +26,10 @@ describe('Pterodactyl safety rules', () => {
       ['POST', '/api/application/servers/12/reinstall'],
       ['PATCH', '/api/application/servers/12/startup'],
       ['POST', '/api/client/servers/1a2b3c4d/settings/reinstall'],
-      ['POST', '/api/client/servers/1a2b3c4d/files/delete'],
       ['POST', '/api/client/servers/1a2b3c4d/backups/abc-123/restore'],
       ['DELETE', '/api/client/servers/1a2b3c4d/backups/abc-123'],
       ['DELETE', '/api/client/servers/1a2b3c4d/databases/xyz'],
       ['DELETE', '/api/client/servers/1a2b3c4d/schedules/4'],
-      ['DELETE', '/api/client/servers/1a2b3c4d/users/uuid-1'],
       ['DELETE', '/api/client/servers/1a2b3c4d/network/allocations/9'],
       ['delete', '/api/application/servers/12'],
     ];
@@ -90,85 +90,127 @@ describe('Pterodactyl safety rules', () => {
     }
   });
 
-  it('has no DELETE rule in the allowlist at all', () => {
-    expect(ALLOWED_RULES.filter((rule) => rule.method === 'DELETE')).toEqual([]);
-  });
-});
-
-describe('file and database rules', () => {
-  const write = (file: unknown) =>
-    checkPterodactylRequest('POST', '/api/client/servers/abcd1234/files/write', ALLOWED_RULES, {
-      file: file as string,
-    }).allowed;
-
-  it('allows writing plugin config files and their ICE18 backups', () => {
-    expect(write('/plugins/LuckPerms/config.yml')).toBe(true);
-    expect(write('/plugins/Plan/config.yaml')).toBe(true);
-    expect(write('/plugins/LuckPerms/config.yml.ice18-backup-20261120-213000')).toBe(true);
-  });
-
-  it.each([
-    ['no file at all', undefined],
-    ['server.properties', '/server.properties'],
-    ['a plugin jar', '/plugins/LuckPerms.jar'],
-    ['a world file', '/world/level.dat'],
-    ['a startup script', '/start.sh'],
-    ['a non-YAML plugin file', '/plugins/LuckPerms/luckperms-h2.mv.db'],
-    ['path traversal', '/plugins/LuckPerms/../../server.yml'],
-    ['dot segment', '/plugins/./config.yml'],
-    ['nested deeper', '/plugins/LuckPerms/sub/config.yml'],
-    ['relative path', 'plugins/LuckPerms/config.yml'],
-    ['a fake backup suffix', '/plugins/X/config.yml.ice18-backup-anything'],
-  ])('refuses writing %s', (_label, file) => {
-    expect(write(file)).toBe(false);
-  });
-
-  it('refuses unsafe paths when reading', () => {
-    const read = (query: Record<string, string>) =>
-      checkPterodactylRequest('GET', '/api/client/servers/abcd1234/files/contents', ALLOWED_RULES, query).allowed;
-    expect(read({ file: '/plugins/LuckPerms/config.yml' })).toBe(true);
-    expect(read({ file: '/plugins/../../etc/passwd' })).toBe(false);
-    expect(read({})).toBe(false);
-  });
-
-  it('allows listing and creating databases but never deleting them or resetting passwords', () => {
-    expect(checkPterodactylRequest('GET', '/api/client/servers/abcd1234/databases').allowed).toBe(true);
-    expect(checkPterodactylRequest('POST', '/api/client/servers/abcd1234/databases').allowed).toBe(true);
-    expect(checkPterodactylRequest('DELETE', '/api/client/servers/abcd1234/databases/xyz', everything).allowed).toBe(false);
-    expect(
-      checkPterodactylRequest('POST', '/api/client/servers/abcd1234/databases/xyz/rotate-password', everything).allowed,
-    ).toBe(false);
-  });
-
-  it('still refuses every other file operation', () => {
-    for (const op of ['delete', 'rename', 'copy', 'compress', 'decompress', 'chmod', 'pull', 'create-folder']) {
-      expect(checkPterodactylRequest('POST', `/api/client/servers/abcd1234/files/${op}`).allowed, op).toBe(false);
+  it('allows exactly one kind of DELETE: removing a subuser', () => {
+    const deletes = ALLOWED_RULES.filter((rule) => rule.method === 'DELETE');
+    expect(deletes).toHaveLength(1);
+    expect(checkPterodactylRequest('DELETE', '/api/client/servers/1a2b3c4d/users/0b1c2d3e-aaaa-bbbb-cccc-1234567890ab').allowed).toBe(true);
+    // Anything else under a server stays forbidden, even near the users path.
+    for (const path of [
+      '/api/client/servers/1a2b3c4d/users',
+      '/api/client/servers/1a2b3c4d/users/x/extra',
+      '/api/client/servers/1a2b3c4d/backups/x',
+      '/api/client/servers/1a2b3c4d/network/allocations/7',
+    ]) {
+      expect(checkPterodactylRequest('DELETE', path, everything).allowed, path).toBe(false);
     }
   });
 });
 
-describe('database file downloads', () => {
-  const download = (file: unknown) =>
-    checkPterodactylRequest('GET', '/api/client/servers/abcd1234/files/download', ALLOWED_RULES, { file: file as string }).allowed;
+describe('file manager rules', () => {
+  const file = (method: string, op: string, query: Record<string, string> = {}, body?: unknown) =>
+    checkPterodactylRequest(method, `/api/client/servers/abcd1234/files/${op}`, ALLOWED_RULES, query, body).allowed;
 
-  it('allows SQLite files in plugin folders', () => {
-    expect(download('/plugins/CoreProtect/database.db')).toBe(true);
-    expect(download('/plugins/Plan/database.db-wal')).toBe(true);
-    expect(download('/plugins/Shop/data/shops.sqlite')).toBe(true);
-    expect(download('/plugins/Jobs/jobs.sqlite3')).toBe(true);
+  it('reads, writes and downloads any file inside the server, but never with path tricks', () => {
+    for (const path of ['/server.properties', '/plugins/LuckPerms/config.yml', '/world/level.dat', '/start.sh']) {
+      expect(file('GET', 'contents', { file: path }), path).toBe(true);
+      expect(file('POST', 'write', { file: path }), path).toBe(true);
+      expect(file('GET', 'download', { file: path }), path).toBe(true);
+    }
+    for (const path of ['/plugins/../../etc/passwd', 'relative.txt', '/a/./b', '/bad\u0000name', '']) {
+      expect(file('GET', 'contents', { file: path }), path).toBe(false);
+      expect(file('POST', 'write', { file: path }), path).toBe(false);
+      expect(file('GET', 'download', { file: path }), path).toBe(false);
+    }
+    expect(file('GET', 'contents')).toBe(false);
+    expect(file('GET', 'list', { directory: '/plugins' })).toBe(true);
+    expect(file('GET', 'list', { directory: '/../' })).toBe(false);
+  });
+
+  it('allows deleting a few files after the UI confirmed it', () => {
+    expect(file('POST', 'delete', {}, { root: '/plugins', files: ['Old.jar', 'OldPlugin'] })).toBe(true);
+    expect(file('POST', 'delete', {}, { root: '/', files: ['crash-reports'] })).toBe(true);
   });
 
   it.each([
-    ['nothing', undefined],
-    ['a world', '/world/level.dat'],
-    ['server.properties', '/server.properties'],
-    ['a plugin jar', '/plugins/LuckPerms.jar'],
-    ['a config file', '/plugins/LuckPerms/config.yml'],
-    ['a database outside plugins', '/database.db'],
-    ['too deep', '/plugins/A/b/c/data.db'],
-    ['traversal', '/plugins/A/../../secret.db'],
-    ['an H2 file', '/plugins/LuckPerms/luckperms-h2-v2.mv.db.bak'],
-  ])('refuses %s', (_label, file) => {
-    expect(download(file)).toBe(false);
+    ['no body', undefined],
+    ['no files', { root: '/', files: [] }],
+    ['the root itself', { root: '/', files: [''] }],
+    ['traversal', { root: '/plugins', files: ['../world'] }],
+    ['absolute names', { root: '/', files: ['/world'] }],
+    ['dot', { root: '/plugins', files: ['.'] }],
+    ['an unsafe root', { root: '/plugins/..', files: ['x'] }],
+    ['too many at once', { root: '/', files: Array.from({ length: MAX_DELETE_ITEMS + 1 }, (_, i) => `f${i}`) }],
+  ])('refuses deleting %s', (_label, body) => {
+    expect(file('POST', 'delete', {}, body)).toBe(false);
+  });
+
+  it('checks paths for every other file operation', () => {
+    expect(file('POST', 'create-folder', {}, { root: '/plugins', name: 'New' })).toBe(true);
+    expect(file('POST', 'create-folder', {}, { root: '/plugins', name: '../New' })).toBe(false);
+    expect(file('PUT', 'rename', {}, { root: '/', files: [{ from: 'a.txt', to: 'b/a.txt' }] })).toBe(true);
+    expect(file('PUT', 'rename', {}, { root: '/', files: [{ from: 'a.txt', to: '../a.txt' }] })).toBe(false);
+    expect(file('POST', 'copy', {}, { location: '/server.properties' })).toBe(true);
+    expect(file('POST', 'copy', {}, { location: '/' })).toBe(false);
+    expect(file('POST', 'compress', {}, { root: '/', files: ['world', 'plugins'] })).toBe(true);
+    expect(file('POST', 'compress', {}, { root: '/', files: ['../x'] })).toBe(false);
+    expect(file('POST', 'decompress', {}, { root: '/plugins', file: 'pack.zip' })).toBe(true);
+    expect(file('POST', 'decompress', {}, { root: '/plugins', file: '../pack.zip' })).toBe(false);
+    expect(file('GET', 'upload')).toBe(true);
+  });
+
+  it('still refuses file operations ICE18 does not offer', () => {
+    for (const op of ['chmod', 'pull']) expect(file('POST', op, {}, {}), op).toBe(false);
+  });
+});
+
+describe('databases, users, startup and network', () => {
+  const allowed = (method: string, path: string) => checkPterodactylRequest(method, path).allowed;
+
+  it('allows listing and creating databases but never deleting them or resetting passwords', () => {
+    expect(allowed('GET', '/api/client/servers/abcd1234/databases')).toBe(true);
+    expect(allowed('POST', '/api/client/servers/abcd1234/databases')).toBe(true);
+    expect(checkPterodactylRequest('DELETE', '/api/client/servers/abcd1234/databases/xyz', everything).allowed).toBe(false);
+    expect(checkPterodactylRequest('POST', '/api/client/servers/abcd1234/databases/xyz/rotate-password', everything).allowed).toBe(false);
+  });
+
+  it('allows managing subusers', () => {
+    expect(allowed('GET', '/api/client/permissions')).toBe(true);
+    expect(allowed('GET', '/api/client/servers/abcd1234/users')).toBe(true);
+    expect(allowed('POST', '/api/client/servers/abcd1234/users')).toBe(true);
+    expect(allowed('POST', '/api/client/servers/abcd1234/users/0b1c2d3e-aaaa')).toBe(true);
+  });
+
+  it('allows startup variables and renaming, but not changing the image, egg or reinstalling', () => {
+    expect(allowed('GET', '/api/client/servers/abcd1234/startup')).toBe(true);
+    expect(allowed('PUT', '/api/client/servers/abcd1234/startup/variable')).toBe(true);
+    expect(allowed('POST', '/api/client/servers/abcd1234/settings/rename')).toBe(true);
+    expect(allowed('PUT', '/api/client/servers/abcd1234/settings/docker-image')).toBe(false);
+    expect(checkPterodactylRequest('POST', '/api/client/servers/abcd1234/settings/reinstall', everything).allowed).toBe(false);
+    expect(checkPterodactylRequest('PATCH', '/api/application/servers/12/startup', everything).allowed).toBe(false);
+  });
+
+  it('allows adding and editing ports, but never removing them', () => {
+    expect(allowed('GET', '/api/client/servers/abcd1234/network/allocations')).toBe(true);
+    expect(allowed('POST', '/api/client/servers/abcd1234/network/allocations')).toBe(true);
+    expect(allowed('POST', '/api/client/servers/abcd1234/network/allocations/12')).toBe(true);
+    expect(allowed('POST', '/api/client/servers/abcd1234/network/allocations/12/primary')).toBe(true);
+    expect(checkPterodactylRequest('DELETE', '/api/client/servers/abcd1234/network/allocations/12', everything).allowed).toBe(false);
+  });
+});
+
+describe('SAFE_DB_DOWNLOAD (what the SQLite viewer may open)', () => {
+  it.each([
+    ['/plugins/CoreProtect/database.db', true],
+    ['/plugins/Plan/database.db-wal', true],
+    ['/plugins/Shop/data/shops.sqlite', true],
+    ['/plugins/Jobs/jobs.sqlite3', true],
+    ['/world/level.dat', false],
+    ['/server.properties', false],
+    ['/plugins/LuckPerms/config.yml', false],
+    ['/database.db', false],
+    ['/plugins/A/b/c/data.db', false],
+    ['/plugins/LuckPerms/luckperms-h2-v2.mv.db.bak', false],
+  ])('%s -> %s', (path, expected) => {
+    expect(SAFE_DB_DOWNLOAD.test(path)).toBe(expected);
   });
 });

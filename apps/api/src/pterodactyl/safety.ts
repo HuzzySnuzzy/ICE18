@@ -8,12 +8,18 @@
  *   1. the path is a plain, well-formed API path (no "..", no encoded characters), and
  *   2. it does NOT match any FORBIDDEN rule (these win over everything), and
  *   3. it DOES match an ALLOWED rule (anything not listed is refused by default), and
- *   4. for file writes, the target file is a plugin config file (see SAFE_CONFIG_WRITE), and
- *   5. for file downloads, the file is a SQLite database in a plugin folder (see SAFE_DB_DOWNLOAD).
+ *   4. file paths in the query or body are plain paths inside the server (no "..", see
+ *      checkFileRequest), and file deletes stay within the limits below.
  *
  * To support a new Pterodactyl feature, add the exact endpoint to ALLOWED_RULES.
  * Never remove or weaken a FORBIDDEN rule: they are the guarantee that ICE18 cannot
- * delete, reinstall or wipe a Pterodactyl server, its files, backups or databases.
+ * delete or reinstall a server, wipe it, or delete/restore its backups or databases.
+ *
+ * Owner-approved exceptions (Nov 2026, for the file manager and user management):
+ *   - deleting individual files/folders (POST files/delete), at most MAX_DELETE_ITEMS per
+ *     request, never the server root, only after the user confirms in the UI;
+ *   - removing a subuser (DELETE /api/client/servers/:id/users/:uuid).
+ * Every other DELETE stays forbidden.
  */
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -22,6 +28,8 @@ export interface ForbiddenRule {
   method: HttpMethod;
   pattern: RegExp;
   reason: string;
+  /** Owner-approved exceptions, matched against the full path. */
+  except?: RegExp;
 }
 
 export interface AllowedRule {
@@ -49,7 +57,9 @@ export const FORBIDDEN_RULES: readonly ForbiddenRule[] = [
   {
     method: 'DELETE',
     pattern: /^\/api\/client\/servers(\/|$)/,
-    reason: 'Deleting server data (backups, databases, schedules, subusers, allocations) is never allowed.',
+    reason: 'Deleting server data (backups, databases, schedules, allocations) is never allowed.',
+    // Removing a subuser deletes no data; the owner asked for user management.
+    except: /^\/api\/client\/servers\/[A-Za-z0-9-]+\/users\/[A-Za-z0-9-]+$/,
   },
   {
     method: 'POST',
@@ -60,11 +70,6 @@ export const FORBIDDEN_RULES: readonly ForbiddenRule[] = [
     method: 'POST',
     pattern: /^\/api\/client\/servers\/[^/]+\/settings\/reinstall$/,
     reason: 'Reinstalling a server can overwrite or wipe its files.',
-  },
-  {
-    method: 'POST',
-    pattern: /^\/api\/client\/servers\/[^/]+\/files\/delete$/,
-    reason: 'Deleting server files is never allowed.',
   },
   {
     method: 'POST',
@@ -110,14 +115,40 @@ export const ALLOWED_RULES: readonly AllowedRule[] = [
   route('GET', '/api/client/servers/:id/databases'),
   route('POST', '/api/client/servers/:id/databases'),
 
-  // Local database files: download a copy of SQLite files in plugin folders to view them
-  // read-only (see SAFE_DB_DOWNLOAD). Nothing is ever uploaded back.
+  // File manager. Paths are checked by checkFileRequest; deletes are capped.
   route('GET', '/api/client/servers/:id/files/download'),
+  route('GET', '/api/client/servers/:id/files/upload'),
+  route('POST', '/api/client/servers/:id/files/create-folder'),
+  route('PUT', '/api/client/servers/:id/files/rename'),
+  route('POST', '/api/client/servers/:id/files/copy'),
+  route('POST', '/api/client/servers/:id/files/compress'),
+  route('POST', '/api/client/servers/:id/files/decompress'),
+  route('POST', '/api/client/servers/:id/files/delete'),
+
+  // Users (subusers) and the permission list.
+  route('GET', '/api/client/permissions'),
+  route('GET', '/api/client/servers/:id/users'),
+  route('POST', '/api/client/servers/:id/users'),
+  route('GET', '/api/client/servers/:id/users/:uuid'),
+  route('POST', '/api/client/servers/:id/users/:uuid'),
+  route('DELETE', '/api/client/servers/:id/users/:uuid'),
+
+  // Startup variables and the server's name. (Changing the docker image or egg is not allowed.)
+  route('GET', '/api/client/servers/:id/startup'),
+  route('PUT', '/api/client/servers/:id/startup/variable'),
+  route('POST', '/api/client/servers/:id/settings/rename'),
+
+  // Network: list, add, annotate and pick the primary port. (Removing ports is not allowed.)
+  route('GET', '/api/client/servers/:id/network/allocations'),
+  route('POST', '/api/client/servers/:id/network/allocations'),
+  route('POST', '/api/client/servers/:id/network/allocations/:allocation'),
+  route('POST', '/api/client/servers/:id/network/allocations/:allocation/primary'),
 ];
 
-const FILE_WRITE_PATH = /^\/api\/client\/servers\/[^/]+\/files\/write$/;
-const FILE_READ_PATH = /^\/api\/client\/servers\/[^/]+\/files\/(list|contents)$/;
-const FILE_DOWNLOAD_PATH = /^\/api\/client\/servers\/[^/]+\/files\/download$/;
+/** Most files/folders one delete request may remove. */
+export const MAX_DELETE_ITEMS = 50;
+
+const FILE_OPERATION = /^\/api\/client\/servers\/[^/]+\/files\/([a-z-]+)$/;
 
 /**
  * The only files ICE18 may download: SQLite database files (and their WAL journal)
@@ -126,15 +157,83 @@ const FILE_DOWNLOAD_PATH = /^\/api\/client\/servers\/[^/]+\/files\/download$/;
 export const SAFE_DB_DOWNLOAD =
   /^\/plugins\/[A-Za-z0-9 _.+-]{1,64}(\/[A-Za-z0-9 _.+-]{1,64})?\/[A-Za-z0-9 _.+-]{1,96}\.(db|sqlite|sqlite3|db3)(-wal)?$/;
 
-/**
- * The only files ICE18 may write: YAML configs inside a plugin's folder, or ICE18's
- * backup copies of them (written before every change). Nothing else on a server.
- */
+/** YAML configs inside a plugin's folder, or ICE18's backup copies of them. */
 export const SAFE_CONFIG_WRITE =
   /^\/plugins\/[A-Za-z0-9 _.+-]{1,64}\/[A-Za-z0-9 _.+-]{1,64}\.ya?ml(\.ice18-backup-\d{8}-\d{6})?$/;
 
-function safeFilePath(file: unknown): file is string {
-  return typeof file === 'string' && file.startsWith('/') && !file.split('/').some((part) => part === '..' || part === '.');
+/** An absolute path inside the server: starts with "/", no "." or ".." parts, no control characters. */
+export function safeFilePath(file: unknown): file is string {
+  return (
+    typeof file === 'string' &&
+    file.length <= 4096 &&
+    file.startsWith('/') &&
+    !/[\x00-\x1f]/.test(file) &&
+    !file.split('/').some((part) => part === '..' || part === '.')
+  );
+}
+
+/** A path relative to some root: non-empty parts, no "." or "..", no leading "/". */
+export function safeRelativePath(name: unknown): name is string {
+  return (
+    typeof name === 'string' &&
+    name.length > 0 &&
+    name.length <= 1024 &&
+    !name.startsWith('/') &&
+    !/[\x00-\x1f]/.test(name) &&
+    name.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
+  );
+}
+
+type Body = Record<string, unknown> | undefined;
+
+/** Checks the paths in a file-manager request. Returns a reason when it must be refused. */
+function checkFileRequest(operation: string, query: Readonly<Record<string, unknown>>, body: Body): string | null {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const list = (value: unknown) => (Array.isArray(value) ? value : null);
+  switch (operation) {
+    case 'list':
+      return safeFilePath(query.directory) ? null : `Refused unsafe directory ${JSON.stringify(query.directory)}.`;
+    case 'contents':
+    case 'download':
+    case 'write':
+      return safeFilePath(query.file) ? null : `Refused unsafe file path ${JSON.stringify(query.file)}.`;
+    case 'upload':
+      return null; // Only returns a signed URL; the target directory is checked where it's used.
+    case 'create-folder':
+      return safeFilePath(b.root) && safeRelativePath(b.name) ? null : 'Refused unsafe folder path.';
+    case 'copy':
+      return safeFilePath(b.location) && b.location !== '/' ? null : 'Refused unsafe copy path.';
+    case 'decompress':
+      return safeFilePath(b.root) && safeRelativePath(b.file) ? null : 'Refused unsafe archive path.';
+    case 'compress': {
+      const files = list(b.files);
+      return safeFilePath(b.root) && files && files.length > 0 && files.length <= 1000 && files.every(safeRelativePath)
+        ? null
+        : 'Refused unsafe files to compress.';
+    }
+    case 'rename': {
+      const files = list(b.files);
+      const ok =
+        safeFilePath(b.root) &&
+        files &&
+        files.length > 0 &&
+        files.length <= 100 &&
+        files.every((entry) => {
+          const { from, to } = (entry ?? {}) as Record<string, unknown>;
+          return safeRelativePath(from) && safeRelativePath(to);
+        });
+      return ok ? null : 'Refused unsafe rename.';
+    }
+    case 'delete': {
+      const files = list(b.files);
+      if (!safeFilePath(b.root) || !files || files.length === 0) return 'Refused delete: nothing valid to delete.';
+      if (files.length > MAX_DELETE_ITEMS) return `Refused delete of ${files.length} items: at most ${MAX_DELETE_ITEMS} at a time.`;
+      if (!files.every(safeRelativePath)) return 'Refused delete: unsafe file name.';
+      return null;
+    }
+    default:
+      return null;
+  }
 }
 
 /** Plain API paths only: no query string, no "..", no "%", no double slashes. */
@@ -147,6 +246,7 @@ export function checkPterodactylRequest(
   path: string,
   allowed: readonly AllowedRule[] = ALLOWED_RULES,
   query: Readonly<Record<string, string | number | undefined>> = {},
+  body?: unknown,
 ): SafetyVerdict {
   const upperMethod = method.toUpperCase();
 
@@ -155,34 +255,15 @@ export function checkPterodactylRequest(
   }
 
   for (const rule of FORBIDDEN_RULES) {
-    if (rule.method === upperMethod && rule.pattern.test(path)) {
+    if (rule.method === upperMethod && rule.pattern.test(path) && !rule.except?.test(path)) {
       return { allowed: false, reason: `${rule.reason} (${upperMethod} ${path})` };
     }
   }
 
-  if (FILE_WRITE_PATH.test(path)) {
-    const file = query.file;
-    if (!safeFilePath(file) || !SAFE_CONFIG_WRITE.test(file)) {
-      return {
-        allowed: false,
-        reason: `ICE18 may only write plugin config files (/plugins/<plugin>/<name>.yml), not ${JSON.stringify(file)}.`,
-      };
-    }
-  }
-  if (FILE_DOWNLOAD_PATH.test(path)) {
-    const file = query.file;
-    if (!safeFilePath(file) || !SAFE_DB_DOWNLOAD.test(file)) {
-      return {
-        allowed: false,
-        reason: `ICE18 may only download SQLite files inside plugin folders, not ${JSON.stringify(file)}.`,
-      };
-    }
-  }
-  if (FILE_READ_PATH.test(path)) {
-    const target = query.file ?? query.directory;
-    if (!safeFilePath(target)) {
-      return { allowed: false, reason: `Refused unsafe file path ${JSON.stringify(target)}.` };
-    }
+  const fileOperation = FILE_OPERATION.exec(path)?.[1];
+  if (fileOperation) {
+    const problem = checkFileRequest(fileOperation, query, body as Body);
+    if (problem) return { allowed: false, reason: problem };
   }
 
   if (allowed.some((rule) => rule.method === upperMethod && rule.pattern.test(path))) {
@@ -206,8 +287,9 @@ export function assertPterodactylRequestAllowed(
   method: string,
   path: string,
   query: Readonly<Record<string, string | number | undefined>> = {},
+  body?: unknown,
 ): void {
-  const verdict = checkPterodactylRequest(method, path, ALLOWED_RULES, query);
+  const verdict = checkPterodactylRequest(method, path, ALLOWED_RULES, query, body);
   if (!verdict.allowed) {
     throw new BlockedPterodactylRequestError(verdict.reason);
   }

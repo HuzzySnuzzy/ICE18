@@ -46,7 +46,10 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config), { bufferLogs: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config), { bufferLogs: false, bodyParser: false });
+  // JSON bodies up to 6 MB so larger config files can be saved from the file editor.
+  // File uploads are raw streams (application/octet-stream) and skip this parser.
+  app.use(express.json({ limit: '6mb' }));
   app.enableShutdownHooks();
   app.disable('x-powered-by');
   if (config.TRUST_PROXY) app.set('trust proxy', 1);

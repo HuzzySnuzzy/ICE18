@@ -3,6 +3,10 @@ import type { PowerSignal } from '@ice18/shared';
 import { CONFIG, isPterodactylConfigured, type AppConfig } from '../config/config';
 import { PterodactylHttp, downloadSignedFile } from './pterodactyl.http';
 import type {
+  PteroAllocation,
+  PteroEggVariable,
+  PteroStartupMeta,
+  PteroSubuserFull,
   PteroFileObject,
   PteroServerDatabase,
   PteroApplicationServer,
@@ -171,5 +175,129 @@ export class PterodactylService {
       { query: { file } },
     );
     return downloadSignedFile(signed.attributes.url, destination, maxBytes);
+  }
+
+  // ---- File manager (paths are checked again by the safety rules) ----
+
+  private server(identifier: string): string {
+    return `/api/client/servers/${assertIdentifier(identifier)}`;
+  }
+
+  async signedDownloadUrl(identifier: string, file: string): Promise<string> {
+    const result = await this.cli().request<PteroItem<{ url: string }>>('GET', `${this.server(identifier)}/files/download`, { query: { file } });
+    return result.attributes.url;
+  }
+
+  async signedUploadUrl(identifier: string): Promise<string> {
+    const result = await this.cli().request<PteroItem<{ url: string }>>('GET', `${this.server(identifier)}/files/upload`);
+    return result.attributes.url;
+  }
+
+  async createFolder(identifier: string, root: string, name: string): Promise<void> {
+    await this.cli().request('POST', `${this.server(identifier)}/files/create-folder`, { body: { root, name } });
+  }
+
+  async renameFiles(identifier: string, root: string, files: Array<{ from: string; to: string }>): Promise<void> {
+    await this.cli().request('PUT', `${this.server(identifier)}/files/rename`, { body: { root, files } });
+  }
+
+  async copyFile(identifier: string, location: string): Promise<void> {
+    await this.cli().request('POST', `${this.server(identifier)}/files/copy`, { body: { location } });
+  }
+
+  async compressFiles(identifier: string, root: string, files: string[]): Promise<PteroFileObject> {
+    const result = await this.cli().request<PteroItem<PteroFileObject>>('POST', `${this.server(identifier)}/files/compress`, {
+      body: { root, files },
+    });
+    return result.attributes;
+  }
+
+  async decompressFile(identifier: string, root: string, file: string): Promise<void> {
+    await this.cli().request('POST', `${this.server(identifier)}/files/decompress`, { body: { root, file } });
+  }
+
+  /** Real delete (owner-approved). The safety rules cap it and check every path. */
+  async deleteFiles(identifier: string, root: string, files: string[]): Promise<void> {
+    await this.cli().request('POST', `${this.server(identifier)}/files/delete`, { body: { root, files } });
+  }
+
+  // ---- Users ----
+
+  async permissionCatalogue(): Promise<Record<string, { description: string; keys: Record<string, string> }>> {
+    const result = await this.cli().request<PteroItem<{ permissions: Record<string, { description: string; keys: Record<string, string> }> }>>(
+      'GET',
+      '/api/client/permissions',
+    );
+    return result.attributes.permissions;
+  }
+
+  async listSubusers(identifier: string): Promise<PteroSubuserFull[]> {
+    const result = await this.cli().request<PteroList<PteroItem<PteroSubuserFull>>>('GET', `${this.server(identifier)}/users`);
+    return result.data.map((item) => item.attributes);
+  }
+
+  async createSubuser(identifier: string, email: string, permissions: string[]): Promise<PteroSubuserFull> {
+    const result = await this.cli().request<PteroItem<PteroSubuserFull>>('POST', `${this.server(identifier)}/users`, {
+      body: { email, permissions },
+    });
+    return result.attributes;
+  }
+
+  async updateSubuser(identifier: string, uuid: string, permissions: string[]): Promise<PteroSubuserFull> {
+    const result = await this.cli().request<PteroItem<PteroSubuserFull>>('POST', `${this.server(identifier)}/users/${assertIdentifier(uuid)}`, {
+      body: { permissions },
+    });
+    return result.attributes;
+  }
+
+  async removeSubuser(identifier: string, uuid: string): Promise<void> {
+    await this.cli().request('DELETE', `${this.server(identifier)}/users/${assertIdentifier(uuid)}`);
+  }
+
+  // ---- Startup ----
+
+  async startup(identifier: string): Promise<{ variables: PteroEggVariable[]; meta: PteroStartupMeta }> {
+    const result = await this.cli().request<PteroList<PteroItem<PteroEggVariable>> & { meta: PteroStartupMeta }>(
+      'GET',
+      `${this.server(identifier)}/startup`,
+    );
+    return { variables: result.data.map((item) => item.attributes), meta: result.meta };
+  }
+
+  async updateStartupVariable(identifier: string, key: string, value: string): Promise<PteroEggVariable> {
+    const result = await this.cli().request<PteroItem<PteroEggVariable>>('PUT', `${this.server(identifier)}/startup/variable`, {
+      body: { key, value },
+    });
+    return result.attributes;
+  }
+
+  async renameServer(identifier: string, name: string, description?: string): Promise<void> {
+    await this.cli().request('POST', `${this.server(identifier)}/settings/rename`, {
+      body: description === undefined ? { name } : { name, description },
+    });
+  }
+
+  // ---- Network ----
+
+  async allocations(identifier: string): Promise<PteroAllocation[]> {
+    const result = await this.cli().request<PteroList<PteroItem<PteroAllocation>>>('GET', `${this.server(identifier)}/network/allocations`);
+    return result.data.map((item) => item.attributes);
+  }
+
+  async assignAllocation(identifier: string): Promise<PteroAllocation> {
+    const result = await this.cli().request<PteroItem<PteroAllocation>>('POST', `${this.server(identifier)}/network/allocations`);
+    return result.attributes;
+  }
+
+  async setAllocationNotes(identifier: string, id: number, notes: string | null): Promise<PteroAllocation> {
+    const result = await this.cli().request<PteroItem<PteroAllocation>>('POST', `${this.server(identifier)}/network/allocations/${id}`, {
+      body: { notes },
+    });
+    return result.attributes;
+  }
+
+  async setPrimaryAllocation(identifier: string, id: number): Promise<PteroAllocation> {
+    const result = await this.cli().request<PteroItem<PteroAllocation>>('POST', `${this.server(identifier)}/network/allocations/${id}/primary`);
+    return result.attributes;
   }
 }

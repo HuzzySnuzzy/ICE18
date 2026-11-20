@@ -58,12 +58,12 @@ describe('PterodactylHttp', () => {
     });
   });
 
-  it('checks the target file of a write before sending it', async () => {
+  it('refuses unsafe write paths before sending anything', async () => {
     const fetchImpl = fakeFetch();
     const http = new PterodactylHttp('https://panel.example.com', 'ptlc_test', fetchImpl);
 
     await expect(
-      http.request('POST', '/api/client/servers/abcd1234/files/write', { query: { file: '/server.properties' }, textBody: 'x' }),
+      http.request('POST', '/api/client/servers/abcd1234/files/write', { query: { file: '/plugins/../../etc/passwd' }, textBody: 'x' }),
     ).rejects.toBeInstanceOf(BlockedPterodactylRequestError);
     expect(fetchImpl).not.toHaveBeenCalled();
 

@@ -49,7 +49,7 @@ export class PterodactylHttp {
   }
 
   async request<T>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<T> {
-    assertPterodactylRequestAllowed(method, path, options.query);
+    assertPterodactylRequestAllowed(method, path, options.query, options.body);
 
     const expectedPath = `${this.basePath}${path}`;
     const url = new URL(expectedPath, this.origin);
@@ -169,5 +169,35 @@ export async function downloadSignedFile(
     out.destroy();
     await rm(destination, { force: true });
     throw error;
+  }
+}
+
+/**
+ * Uploads one file to a signed Wings upload URL (from Pterodactyl's files/upload) into
+ * `directory`. ICE18 relays uploads because browsers can't post to Wings across origins.
+ */
+export async function uploadToSignedUrl(
+  signedUrl: string,
+  directory: string,
+  fileName: string,
+  data: Buffer,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const url = new URL(signedUrl);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new PterodactylError(`Refusing to upload to ${url.protocol} URL.`, 0);
+  }
+  url.searchParams.set('directory', directory);
+  const form = new FormData();
+  form.append('files', new Blob([new Uint8Array(data)]), fileName);
+  let response: Response;
+  try {
+    response = await fetchImpl(url, { method: 'POST', body: form, redirect: 'error', signal: AbortSignal.timeout(10 * 60_000) });
+  } catch (error) {
+    throw new PterodactylError(`Could not reach the server's node (Wings) at ${url.host}: ${(error as Error).message}`, 0);
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new PterodactylError(`The server's node (Wings) refused the upload (${response.status}) ${text.slice(0, 200)}`.trim(), response.status);
   }
 }

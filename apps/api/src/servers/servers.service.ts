@@ -11,6 +11,14 @@ const CACHE_MS = 15_000;
 export interface ServerAccess {
   server: ServerSummary;
   permissions: ServerPermission[];
+  /**
+   * Every Pterodactyl permission the viewer has on this server, or '*' for admins and the
+   * owner. ICE18 acts with the admin key, so it must check this itself, e.g. so a subuser
+   * can't hand out permissions they don't have.
+   */
+  grantable: string[] | '*';
+  /** The viewer's own Pterodactyl user id is the owner's. */
+  isOwner: boolean;
 }
 
 /**
@@ -71,6 +79,11 @@ export class ServersService {
     );
   }
 
+  /** Forget cached server details (e.g. after a rename). */
+  invalidate(): void {
+    this.cache = undefined;
+  }
+
   /** Every server on the panel (identifier and name), whoever owns it. For system checks only. */
   async allServers(): Promise<Array<{ identifier: string; name: string }>> {
     if (!this.ptero.configured) return [];
@@ -94,7 +107,10 @@ export class ServersService {
     const server = (await this.allPterodactylServers()).find((entry) => entry.identifier === identifier);
     const permissions = server ? this.accessFor(user, server) : null;
     if (!server || !permissions) throw new NotFoundException('Server not found.');
-    return { server: this.summarize(server, permissions), permissions };
+    const isOwner = user.pteroUserId !== null && user.pteroUserId === server.user;
+    const subuser = (server.relationships?.subusers?.data ?? []).find((item) => item.attributes.user_id === user.pteroUserId);
+    const grantable = user.isAdmin || isOwner ? '*' : (subuser?.attributes.permissions ?? []);
+    return { server: this.summarize(server, permissions), permissions, grantable, isOwner };
   }
 
   async resources(user: UserRow, identifier: string): Promise<ServerResources> {

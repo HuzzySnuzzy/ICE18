@@ -13,6 +13,7 @@ import { CONFIG, type AppConfig } from '../config/config';
 import type { UserRow } from '../db/schema';
 import { PterodactylError } from '../pterodactyl/pterodactyl.http';
 import { PterodactylService } from '../pterodactyl/pterodactyl.service';
+import { SAFE_CONFIG_WRITE } from '../pterodactyl/safety';
 import type { PteroServerDatabase } from '../pterodactyl/pterodactyl.types';
 import { ServersService } from '../servers/servers.service';
 import { MAX_CONFIG_BYTES, mapLimited, readPluginConfig } from './files';
@@ -299,6 +300,10 @@ export class PluginsService {
     let when = Date.now();
     while (existing.has(`${fileName}.ice18-backup-${timestamp(new Date(when))}`)) when += 1000;
     const backupFile = `${configFile}.ice18-backup-${timestamp(new Date(when))}`;
+    // This feature only ever touches a plugin's YAML config and its ICE18 backup.
+    if (!SAFE_CONFIG_WRITE.test(configFile) || !SAFE_CONFIG_WRITE.test(backupFile)) {
+      throw new BadRequestException('Refusing to write outside a plugin config file.');
+    }
     await this.ptero.writeFile(identifier, backupFile, original);
     await this.ptero.writeFile(identifier, configFile, updated.text);
 

@@ -12,6 +12,7 @@ import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './db/database.module';
 import { HealthController } from './health.controller';
 import { DbBrowserModule } from './dbbrowser/dbbrowser.module';
+import { ManageModule } from './manage/manage.module';
 import { PluginsModule } from './plugins/plugins.module';
 import { PterodactylModule } from './pterodactyl/pterodactyl.module';
 import { ServersModule } from './servers/servers.module';
@@ -33,6 +34,7 @@ export class AppModule {
         ServersModule,
         PluginsModule,
         DbBrowserModule,
+        ManageModule,
       ],
       controllers: [HealthController, AccountController, AdminController, UpdatesController],
       providers: [

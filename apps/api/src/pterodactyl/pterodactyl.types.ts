@@ -105,3 +105,38 @@ export interface PteroServerDatabase {
     password?: PteroItem<{ password: string }>;
   };
 }
+
+export interface PteroSubuserFull {
+  uuid: string;
+  username: string;
+  email: string;
+  image?: string;
+  '2fa_enabled': boolean;
+  created_at: string | null;
+  permissions: string[];
+}
+
+export interface PteroEggVariable {
+  name: string;
+  description: string;
+  env_variable: string;
+  default_value: string;
+  server_value: string | null;
+  is_editable: boolean;
+  rules: string;
+}
+
+export interface PteroStartupMeta {
+  startup_command: string;
+  raw_startup_command: string;
+  docker_images: Record<string, string>;
+}
+
+export interface PteroAllocation {
+  id: number;
+  ip: string;
+  ip_alias: string | null;
+  port: number;
+  notes: string | null;
+  is_default: boolean;
+}

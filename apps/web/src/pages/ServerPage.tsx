@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { PowerSignal, ServerPermission, ServerResources, ServerSummary } from '@ice18/shared';
+import { FilesPanel } from '../components/FilesPanel';
+import { NetworkPanel, StartupPanel, UsersPanel } from '../components/ManagePanels';
 import { PluginsPanel } from '../components/PluginsPanel';
 import { Terminal, type TerminalHandle } from '../components/Terminal';
 import { Alert, Badge, Button, Spinner, StateBadge, cx } from '../components/ui';
@@ -21,8 +23,10 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 export function ServerPage() {
   const { identifier = '' } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const TABS = ['console', 'files', 'plugins', 'users', 'startup', 'network'] as const;
   const requestedTab = searchParams.get('tab');
-  const tab = requestedTab === 'plugins' ? requestedTab : 'console';
+  const tab: (typeof TABS)[number] = (TABS as readonly string[]).includes(requestedTab ?? '') ? (requestedTab as (typeof TABS)[number]) : 'console';
+  const [reload, setReload] = useState(0);
   const [server, setServer] = useState<ServerSummary | null>(null);
   const [initial, setInitial] = useState<ServerResources | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -36,11 +40,14 @@ export function ServerPage() {
   const live = useConsole(identifier, (text) => terminal.current?.write(text));
 
   useEffect(() => {
-    setServer(null);
+    if (reload === 0) setServer(null);
     setLoadError(null);
     api<ServerSummary>(`/servers/${encodeURIComponent(identifier)}`)
       .then(setServer)
       .catch((error) => setLoadError(errorMessage(error)));
+  }, [identifier, reload]);
+
+  useEffect(() => {
     api<ServerResources>(`/servers/${encodeURIComponent(identifier)}/resources`)
       .then(setInitial)
       .catch(() => undefined);
@@ -153,13 +160,19 @@ export function ServerPage() {
         </div>
       )}
 
-      <div className="mb-5 flex gap-1 border-b border-ink-700" role="tablist">
+      <div className="-mx-4 mb-5 flex gap-1 overflow-x-auto border-b border-ink-700 px-4 md:mx-0 md:px-0" role="tablist">
         {(
           [
-            ['console', 'Console'],
-            ['plugins', 'Plugins & databases'],
+            ['console', 'Console', true],
+            ['files', 'Files', can('file.read')],
+            ['plugins', 'Plugins & databases', can('file.read')],
+            ['users', 'Users', can('user.read')],
+            ['startup', 'Startup', can('startup.read') || can('settings.rename')],
+            ['network', 'Network', can('allocation.read')],
           ] as const
-        ).map(([key, label]) => (
+        )
+          .filter(([, , visible]) => visible)
+          .map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -167,7 +180,7 @@ export function ServerPage() {
             aria-selected={tab === key}
             onClick={() => setSearchParams(key === 'console' ? {} : { tab: key }, { replace: true })}
             className={cx(
-              '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+              '-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors',
               tab === key ? 'border-ice-400 text-ink-100' : 'border-transparent text-ink-400 hover:text-ink-200',
             )}
           >
@@ -228,7 +241,11 @@ export function ServerPage() {
           </div>
         </div>
       </div>
+      {tab === 'files' && <FilesPanel server={server} />}
       {tab === 'plugins' && <PluginsPanel server={server} />}
+      {tab === 'users' && <UsersPanel server={server} />}
+      {tab === 'startup' && <StartupPanel server={server} onRenamed={() => setReload((value) => value + 1)} />}
+      {tab === 'network' && <NetworkPanel server={server} />}
     </>
   );
 }

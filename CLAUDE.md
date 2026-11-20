@@ -4,7 +4,9 @@ Game server panel that runs on top of an existing Pterodactyl panel (through its
 
 ## The one rule that must never be broken
 
-**ICE18 must never wipe a Pterodactyl server.** No deleting servers, reinstalling, deleting files, restoring backups, deleting backups/databases, or changing a server's egg/startup.
+**ICE18 must never wipe a Pterodactyl server.** No deleting servers, reinstalling, restoring backups, deleting backups/databases, rotating database passwords, removing ports, or changing a server's egg/startup/docker image.
+
+Owner-approved exceptions (Nov 2026): the file manager may delete individual files/folders (`POST files/delete`, at most `MAX_DELETE_ITEMS` per request, never the server root, only after the user confirms in the UI), and user management may remove a subuser (`DELETE /api/client/servers/:id/users/:uuid`, the only DELETE in the allowlist). Don't widen these without the owner asking.
 
 This is enforced in code, not by convention:
 
@@ -12,7 +14,9 @@ This is enforced in code, not by convention:
 - `apps/api/src/pterodactyl/safety.ts` has `FORBIDDEN_RULES` (always win) and `ALLOWED_RULES` (default-deny allowlist).
 - `safety.spec.ts` and `pterodactyl.http.spec.ts` prove the forbidden calls are refused and never reach the network.
 
-When adding a feature that needs a new Pterodactyl endpoint: add that exact endpoint to `ALLOWED_RULES` and a test for it. Never remove or loosen a `FORBIDDEN_RULES` entry, never call `fetch` against Pterodactyl directly, and never add a `DELETE` to the allowlist.
+When adding a feature that needs a new Pterodactyl endpoint: add that exact endpoint to `ALLOWED_RULES` and a test for it. Never remove or loosen a `FORBIDDEN_RULES` entry, never call `fetch` against Pterodactyl directly, and never add another `DELETE` to the allowlist. File paths in queries and bodies are checked by `checkFileRequest()` (no `..`, absolute roots, plain relative names).
+
+ICE18 calls Pterodactyl with the admin client key, so Pterodactyl can't enforce subuser limits for us: every server action must check the viewer's permissions first (`ServersService.getForUser()` / `ManageService.require()`), and subusers may only grant permissions they have (`manage/grants.ts`).
 
 ## Layout
 
@@ -21,6 +25,10 @@ When adding a feature that needs a new Pterodactyl endpoint: add that exact endp
 - `packages/shared`: types shared by both (build it before the API: `pnpm --filter @ice18/shared build`).
 - `egg/`: Pterodactyl egg and its install script.
 - `scripts/start.sh`: the egg's startup command. Runs `scripts/update.sh` before starting the panel and restarts it when it exits with code 75 (an update was requested by `apps/api/src/updates/update.service.ts`). `update.sh` rolls back to the previous commit if install/build fails. Both wrap their body in `main()` so bash has read the whole file before `git reset` replaces it; keep it that way.
+
+## Server management (`apps/api/src/manage/`)
+
+Files, users (subusers), startup variables/rename and network (ports) for one server, shown as tabs on the server page. Uploads are relayed through ICE18 to the signed Wings URL (`uploadToSignedUrl`), because browsers can't post to Wings cross-origin; downloads hand the browser the signed Wings URL. Everything that changes something is written to the audit log (startup variable values are not, only their names).
 
 ## Plugin databases
 

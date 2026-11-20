@@ -132,3 +132,44 @@ export function Logo({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** Centered dialog with a dimmed backdrop. Esc or clicking the backdrop closes it. */
+export function Dialog({
+  title,
+  children,
+  footer,
+  onClose,
+  wide,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+      onKeyDown={(event) => event.key === 'Escape' && onClose()}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className={cx(
+          'flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-ink-700 bg-ink-850 shadow-2xl sm:rounded-xl',
+          wide ? 'sm:max-w-5xl' : 'sm:max-w-lg',
+        )}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-ink-700 px-5 py-3.5">
+          <h2 className="min-w-0 truncate text-sm font-semibold text-ink-100">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-ink-400 hover:bg-ink-700 hover:text-ink-100" aria-label="Close">
+            ×
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto p-5">{children}</div>
+        {footer && <footer className="flex flex-wrap justify-end gap-2 border-t border-ink-700 px-5 py-3">{footer}</footer>}
+      </div>
+    </div>
+  );
+}
