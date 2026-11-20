@@ -13,6 +13,8 @@ import { DatabaseModule } from './db/database.module';
 import { HealthController } from './health.controller';
 import { PterodactylModule } from './pterodactyl/pterodactyl.module';
 import { ServersModule } from './servers/servers.module';
+import { UpdateService } from './updates/update.service';
+import { UpdatesController } from './updates/updates.controller';
 
 @Module({})
 export class AppModule {
@@ -28,8 +30,9 @@ export class AppModule {
         PterodactylModule,
         ServersModule,
       ],
-      controllers: [HealthController, AccountController, AdminController],
+      controllers: [HealthController, AccountController, AdminController, UpdatesController],
       providers: [
+        UpdateService,
         // Order matters: rate limit, then CSRF check, then login check.
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: CsrfGuard },

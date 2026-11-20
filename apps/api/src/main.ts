@@ -10,6 +10,7 @@ import { AppModule } from './app.module';
 import { isPterodactylConfigured, loadConfig } from './config/config';
 import { runMigrations } from './db/database.service';
 import { ConsoleRelay } from './servers/console.relay';
+import { RESTART_FOR_UPDATE_EXIT_CODE, UpdateService } from './updates/update.service';
 
 const WEB_DIST = path.resolve(__dirname, '../../web/dist');
 
@@ -40,6 +41,14 @@ async function bootstrap(): Promise<void> {
   }
 
   app.get(ConsoleRelay).attach(app.getHttpServer());
+
+  // Applying an update = shut down cleanly and exit with a code scripts/start.sh understands.
+  app.get(UpdateService).setRestartHandler(async () => {
+    logger.log('Restarting to apply an update…');
+    setTimeout(() => process.exit(RESTART_FOR_UPDATE_EXIT_CODE), 10_000).unref();
+    await app.close().catch(() => undefined);
+    process.exit(RESTART_FOR_UPDATE_EXIT_CODE);
+  });
 
   if (!isPterodactylConfigured(config)) {
     logger.warn('Pterodactyl is not connected yet: set PTERODACTYL_URL, PTERODACTYL_APP_KEY and PTERODACTYL_CLIENT_KEY.');

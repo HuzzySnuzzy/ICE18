@@ -7,13 +7,13 @@
     "exported_at": "2026-11-20T00:00:00+00:00",
     "name": "ICE18 Panel",
     "author": "ice18@example.com",
-    "description": "ICE18 server panel. Runs on top of this Pterodactyl panel through its API and never deletes, reinstalls or wipes Pterodactyl servers.",
+    "description": "ICE18 server panel. Runs on top of this Pterodactyl panel through its API and never deletes, reinstalls or wipes Pterodactyl servers. Updates itself from git.",
     "features": null,
     "docker_images": {
         "Node.js 22": "ghcr.io/parkervcp/yolks:nodejs_22"
     },
     "file_denylist": [],
-    "startup": "node apps/api/dist/main.js",
+    "startup": "bash scripts/start.sh",
     "config": {
         "files": "{}",
         "startup": "{\"done\": \"ICE18 panel listening on port\"}",
@@ -46,6 +46,26 @@
             "user_viewable": true,
             "user_editable": false,
             "rules": "required|string|max:100",
+            "field_type": "text"
+        },
+        {
+            "name": "Automatic updates",
+            "description": "Install new ICE18 versions from git automatically: on every start, and while running. Only ICE18's own folder is updated; a failed update rolls back.",
+            "env_variable": "AUTO_UPDATE",
+            "default_value": "true",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "Update check interval",
+            "description": "How often (in minutes) a running ICE18 checks for a new version.",
+            "env_variable": "UPDATE_CHECK_MINUTES",
+            "default_value": "30",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|integer|min:1|max:10080",
             "field_type": "text"
         },
         {

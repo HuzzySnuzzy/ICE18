@@ -91,3 +91,20 @@ export interface AuditEntry {
   detail: string | null;
   createdAt: string;
 }
+
+export interface UpdateStatus {
+  /** False when ICE18 isn't running from a git checkout (updates are then manual). */
+  supported: boolean;
+  branch: string;
+  currentCommit: string | null;
+  latestCommit: string | null;
+  updateAvailable: boolean;
+  /** Tracked files were edited by hand; auto-update won't overwrite them. */
+  localChanges: boolean;
+  autoUpdate: boolean;
+  /** Started via scripts/start.sh, so the panel can restart itself to apply updates. */
+  canRestart: boolean;
+  checking: boolean;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+}

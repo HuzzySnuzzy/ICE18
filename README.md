@@ -12,6 +12,7 @@ A game server panel that sits **on top of your existing Pterodactyl panel**. Not
 - Permissions follow Pterodactyl's: subusers only get the console and power rights they have on Pterodactyl.
 - Users link their Pterodactyl account by pasting a client API key once (used to prove ownership, never stored). Admins can also link accounts.
 - Activity log of logins, power actions, console commands and account changes.
+- Automatic updates from git, with rollback if a new version fails to install.
 
 Coming next: plugin-aware database setup (detect SQL-capable plugins and wire them to a database in one click), an SSMS-style database browser, and server ordering with billing.
 
@@ -28,7 +29,18 @@ Coming next: plugin-aware database setup (detect SQL-capable plugins and wire th
 5. **Fill in the server's startup variables** (*Admin → Servers →* the server *→ Startup*): database URL, app secret (`openssl rand -hex 32`), Pterodactyl URL and both keys.
 6. **Start the server**, open `http://NODE-IP:PORT` and create your admin account.
 
-To update ICE18, reinstall the ICE18 server from its *Settings* tab. This pulls the latest code into the ICE18 server's own folder only.
+### Updates
+
+ICE18 keeps itself up to date (turn this off with the *Automatic updates* variable):
+
+- On every start, it pulls the latest version of its branch, reinstalls and rebuilds.
+- While running, it checks every 30 minutes (*Update check interval*). When it finds a new version it restarts itself to install it. Open consoles reconnect by themselves.
+- If a new version fails to install, ICE18 rolls back to the version that was working and skips the broken one until a newer version is pushed.
+- Admins can see the running version, check now, or update now under *Admin → Updates*.
+
+Updates only touch the ICE18 server's own folder, never other Pterodactyl servers. Your `.env` file is kept. If you edit ICE18's files by hand, automatic updates pause so your edits aren't overwritten.
+
+Already imported the egg before automatic updates existed? Re-import `egg/egg-ice18-panel.json` (*Update Egg* on the egg's page) and set the ICE18 server's startup command to `bash scripts/start.sh`.
 
 For a proper domain with HTTPS, put Nginx, Caddy or a Cloudflare Tunnel in front of the port, then set `PUBLIC_URL`, `COOKIE_SECURE=true` and `TRUST_PROXY=true`.
 
@@ -54,5 +66,6 @@ Tests: `pnpm test`.
 | `apps/web` | React, Vite, Tailwind CSS, xterm.js |
 | `packages/shared` | Types shared by both |
 | `egg/` | Pterodactyl egg and install script |
+| `scripts/` | `start.sh` (startup command, applies updates) and `update.sh` |
 
 The browser never talks to Pterodactyl or Wings directly. For the console, ICE18 checks the user's permissions, gets a Wings token from Pterodactyl, connects to Wings itself, renews the token before it expires, and only passes on safe messages (logs, stats, commands and power signals the user is allowed to send).

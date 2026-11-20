@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { AuditEntry, PterodactylUserSummary, PublicUser } from '@ice18/shared';
+import type { AuditEntry, PterodactylUserSummary, PublicUser, UpdateStatus } from '@ice18/shared';
 import { Alert, Badge, Button, Card, Input, PageHeader, Spinner } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -166,6 +166,134 @@ function UsersCard() {
   );
 }
 
+const short = (commit: string | null) => (commit ? commit.slice(0, 7) : '—');
+
+/** Waits for the panel to come back after a restart, then reloads the page. */
+async function waitForRestart(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  for (let attempt = 0; attempt < 200; attempt++) {
+    try {
+      const response = await fetch('/api/health', { cache: 'no-store' });
+      if (response.ok) {
+        window.location.reload();
+        return;
+      }
+    } catch {
+      /* still restarting */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
+function UpdatesCard() {
+  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [busy, setBusy] = useState<'check' | 'apply' | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<UpdateStatus>('/admin/updates')
+      .then(setStatus)
+      .catch((err) => setError(errorMessage(err)));
+  }, []);
+
+  async function check() {
+    setBusy('check');
+    setError(null);
+    try {
+      const result = await api<UpdateStatus>('/admin/updates/check', { method: 'POST' });
+      setStatus(result);
+      // With auto-update on, a check that finds a new version restarts the panel by itself.
+      if (result.updateAvailable && result.autoUpdate && result.canRestart && !result.localChanges) {
+        setRestarting(true);
+        void waitForRestart();
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function apply() {
+    if (!window.confirm('Update ICE18 and restart it now? Open consoles reconnect by themselves. Pterodactyl servers are not affected.')) return;
+    setBusy('apply');
+    setError(null);
+    try {
+      await api('/admin/updates/apply', { method: 'POST' });
+      setRestarting(true);
+      void waitForRestart();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(null);
+    }
+  }
+
+  let badge = <Badge>Not checked yet</Badge>;
+  if (status && !status.supported) badge = <Badge>Manual updates</Badge>;
+  else if (status?.updateAvailable) badge = <Badge tone="yellow">Update available</Badge>;
+  else if (status?.lastCheckedAt) badge = <Badge tone="green">Up to date</Badge>;
+
+  return (
+    <Card title="Updates" actions={badge}>
+      {error && (
+        <div className="mb-4">
+          <Alert>{error}</Alert>
+        </div>
+      )}
+      {restarting ? (
+        <div className="flex items-center gap-3 text-sm text-ink-300">
+          <Spinner className="size-4" /> Updating and restarting ICE18. This page reloads when it's back, usually within a minute or two.
+        </div>
+      ) : !status ? (
+        <Spinner className="size-4" />
+      ) : !status.supported ? (
+        <p className="text-sm text-ink-400">
+          ICE18 isn't running from a git checkout, so it can't update itself. Reinstall it from Pterodactyl to update.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[160px_1fr]">
+            <dt className="text-ink-400">Running version</dt>
+            <dd className="font-mono text-ink-100">{short(status.currentCommit)}</dd>
+            <dt className="text-ink-400">Latest on {status.branch}</dt>
+            <dd className="font-mono text-ink-100">{short(status.latestCommit)}</dd>
+            <dt className="text-ink-400">Automatic updates</dt>
+            <dd className="text-ink-100">
+              {status.autoUpdate && status.canRestart
+                ? 'On: new versions install by themselves'
+                : status.autoUpdate
+                  ? 'Off: ICE18 was not started with scripts/start.sh'
+                  : 'Off (AUTO_UPDATE=false)'}
+            </dd>
+            <dt className="text-ink-400">Last checked</dt>
+            <dd className="text-ink-100">{status.lastCheckedAt ? formatDate(status.lastCheckedAt) : 'Not yet'}</dd>
+          </dl>
+          {status.lastError && <Alert tone="yellow">{status.lastError}</Alert>}
+          {status.localChanges && (
+            <Alert tone="yellow">ICE18's files were edited by hand, so updates won't overwrite them until those edits are removed.</Alert>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void check()} busy={busy === 'check'} disabled={busy !== null || status.checking}>
+              Check now
+            </Button>
+            {status.updateAvailable && (
+              <Button
+                variant="primary"
+                onClick={() => void apply()}
+                busy={busy === 'apply'}
+                disabled={busy !== null || !status.canRestart || status.localChanges}
+              >
+                Update &amp; restart
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AuditCard() {
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -209,6 +337,7 @@ export function AdminPage() {
       <PageHeader title="Admin" subtitle="Manage ICE18 accounts and see what's been happening." />
       <div className="grid gap-5">
         <UsersCard />
+        <UpdatesCard />
         <AuditCard />
       </div>
     </>

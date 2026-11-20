@@ -20,6 +20,7 @@ When adding a feature that needs a new Pterodactyl endpoint: add that exact endp
 - `apps/web`: React + Vite + Tailwind v4 frontend.
 - `packages/shared`: types shared by both (build it before the API: `pnpm --filter @ice18/shared build`).
 - `egg/`: Pterodactyl egg and its install script.
+- `scripts/start.sh`: the egg's startup command. Runs `scripts/update.sh` before starting the panel and restarts it when it exits with code 75 (an update was requested by `apps/api/src/updates/update.service.ts`). `update.sh` rolls back to the previous commit if install/build fails. Both wrap their body in `main()` so bash has read the whole file before `git reset` replaces it; keep it that way.
 
 ## Commands
 

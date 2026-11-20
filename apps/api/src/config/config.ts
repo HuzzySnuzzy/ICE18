@@ -21,6 +21,15 @@ const schema = z.object({
   REGISTRATION_ENABLED: flag(false),
   COOKIE_SECURE: flag(false),
   TRUST_PROXY: flag(false),
+  /** Pull and apply updates from git automatically (only when started via scripts/start.sh). */
+  AUTO_UPDATE: flag(true),
+  UPDATE_CHECK_MINUTES: z.coerce.number().int().min(1).max(10_080).default(30),
+  GIT_BRANCH: z
+    .string()
+    .regex(/^[A-Za-z0-9._/-]+$/, 'GIT_BRANCH may only contain letters, numbers and . _ / -')
+    .default('main'),
+  /** Set by scripts/start.sh: the panel may exit with code 75 to get restarted with an update. */
+  ICE18_SUPERVISED: flag(false),
 });
 
 export type AppConfig = z.infer<typeof schema>;
