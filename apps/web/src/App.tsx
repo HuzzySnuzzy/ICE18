@@ -5,6 +5,7 @@ import { Spinner } from './components/ui';
 import { AuthProvider, useAuth } from './lib/auth';
 import { AccountPage } from './pages/AccountPage';
 import { AdminPage } from './pages/AdminPage';
+import { DatabasesPage } from './pages/DatabasesPage';
 import { LoginPage } from './pages/LoginPage';
 import { ServersPage } from './pages/ServersPage';
 
@@ -47,6 +48,7 @@ export function App() {
                 </Suspense>
               }
             />
+            <Route path="/databases" element={<DatabasesPage />} />
             <Route path="/account" element={<AccountPage />} />
             <Route
               path="/admin"

@@ -183,13 +183,6 @@ export interface PluginSetupResult {
 
 // ---- Database browser ----
 
-export interface DbOverview {
-  /** True while the server is not offline: data can be viewed but not changed. */
-  locked: boolean;
-  state: string;
-  databases: ServerDatabase[];
-}
-
 export interface DbTable {
   name: string;
   type: 'table' | 'view';
@@ -248,3 +241,51 @@ export interface DbRowsPage {
 
 /** Primary key values that identify one row. */
 export type DbRowKey = Record<string, string>;
+
+// ---- Databases page (all servers) ----
+
+/** A Pterodactyl database plus the server it belongs to. */
+export interface PanelDatabase extends ServerDatabase {
+  serverIdentifier: string;
+  serverName: string;
+  /** The viewer may open its tables (database.read + database.view_password on the owner server). */
+  canBrowse: boolean;
+}
+
+/** A plugin whose config points at a database. */
+export interface DatabaseUsage {
+  databaseName: string;
+  /** "host:port" written in the plugin's config. */
+  host: string | null;
+  /** Null when the viewer can't see that server. */
+  serverIdentifier: string | null;
+  serverName: string;
+  plugin: string;
+  configFile: string | null;
+}
+
+export interface DatabaseUsageIndex {
+  usages: DatabaseUsage[];
+  /** Admins only: databases plugins use that Pterodactyl doesn't manage (e.g. an external MySQL). */
+  unmanaged: Array<{ databaseName: string; host: string | null }>;
+  scannedAt: string;
+  /** Servers whose plugins couldn't be scanned. */
+  failedServers: number;
+}
+
+export interface DatabaseLockServer {
+  /** Null when the viewer can't see that server. */
+  identifier: string | null;
+  name: string;
+  state: string;
+  role: 'owner' | 'plugin';
+  plugins: string[];
+  canStop: boolean;
+}
+
+export interface DatabaseLockStatus {
+  /** Read-only while the owner server or any server whose plugins use the database isn't offline. */
+  locked: boolean;
+  servers: DatabaseLockServer[];
+  checkedAt: string;
+}

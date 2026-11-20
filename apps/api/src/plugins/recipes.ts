@@ -161,6 +161,8 @@ export interface RecipeState {
   storage: 'mysql' | 'local';
   summary: string;
   database: string | null;
+  /** "host:port" the plugin connects to, when using MySQL. */
+  host: string | null;
 }
 
 /** Reads what a supported plugin is currently configured to use. */
@@ -176,10 +178,11 @@ export function readRecipeState(recipe: PluginRecipe, text: string): RecipeState
       storage: 'mysql',
       summary: `MySQL: ${String(database ?? '?')} on ${host}`,
       database: database === undefined || database === null ? null : String(database),
+      host,
     };
   }
   const label = typeof storageValue === 'boolean' || storageValue === undefined ? 'files' : String(storageValue);
-  return { storage: 'local', summary: `Local storage (${label})`, database: null };
+  return { storage: 'local', summary: `Local storage (${label})`, database: null, host: null };
 }
 
 /** The indent step the file uses, so a 4-space file stays 4-space. */

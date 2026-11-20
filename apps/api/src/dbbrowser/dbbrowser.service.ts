@@ -11,7 +11,7 @@ import mysql from 'mysql2/promise';
 import type {
   DbColumn,
   DbIndex,
-  DbOverview,
+  DatabaseLockStatus,
   DbRowKey,
   DbRowsPage,
   DbTable,
@@ -22,9 +22,9 @@ import { AuditService } from '../audit/audit.service';
 import { explainDatabaseError } from '../db/database.service';
 import type { UserRow } from '../db/schema';
 import { PluginsService } from '../plugins/plugins.service';
-import { PterodactylError } from '../pterodactyl/pterodactyl.http';
 import { PterodactylService } from '../pterodactyl/pterodactyl.service';
 import { ServersService } from '../servers/servers.service';
+import { DatabasesService } from './databases.service';
 import { clampPage, isBinaryType, toCell, validateRowKey } from './sql';
 
 const POOL_IDLE_MS = 5 * 60_000;
@@ -64,6 +64,7 @@ export class DbBrowserService implements OnModuleDestroy {
     private readonly ptero: PterodactylService,
     private readonly plugins: PluginsService,
     private readonly audit: AuditService,
+    private readonly databases: DatabasesService,
   ) {
     this.sweeper.unref();
   }
@@ -91,20 +92,26 @@ export class DbBrowserService implements OnModuleDestroy {
     }
   }
 
-  /** Data is locked unless the server is fully offline. Checked fresh before every write. */
-  private async serverState(identifier: string): Promise<{ state: string; locked: boolean }> {
-    const resources = await this.ptero.getResources(identifier);
-    const state = resources.is_suspended ? 'suspended' : resources.current_state;
-    return { state, locked: state !== 'offline' };
-  }
-
-  private async assertUnlocked(identifier: string): Promise<void> {
-    const { state, locked } = await this.serverState(identifier);
-    if (locked) {
+  /**
+   * Data is locked unless the owner server and every server whose plugins use this
+   * database are offline. Checked fresh (no cached states) before every write.
+   */
+  private async assertUnlocked(user: UserRow, identifier: string, databaseId: string): Promise<void> {
+    const entry = await this.pool(identifier, databaseId);
+    const status = await this.databases.lockStatus(user, identifier, entry.name, { forWrite: true });
+    if (status.locked) {
+      const online = status.servers.filter((server) => server.state !== 'offline');
+      const list = online.map((server) => `${server.name} (${server.state})`).join(', ');
       throw new ConflictException(
-        `The server is ${state}, so its data is read-only. Stop the server to edit it.`,
+        `${entry.name} is read-only while servers that use it are online: ${list}. Stop ${online.length === 1 ? 'it' : 'them'} to edit.`,
       );
     }
+  }
+
+  async status(user: UserRow, identifier: string, databaseId: string): Promise<DatabaseLockStatus> {
+    await this.requireAccess(user, identifier);
+    const entry = await this.pool(identifier, databaseId);
+    return this.databases.lockStatus(user, identifier, entry.name);
   }
 
   private async pool(identifier: string, databaseId: string): Promise<PoolEntry> {
@@ -162,30 +169,6 @@ export class DbBrowserService implements OnModuleDestroy {
       }
       throw error;
     }
-  }
-
-  async overview(user: UserRow, identifier: string): Promise<DbOverview> {
-    await this.requireAccess(user, identifier);
-    const [{ state, locked }, databases] = await Promise.all([
-      this.serverState(identifier).catch((error) => {
-        if (error instanceof PterodactylError) return { state: 'unknown', locked: true };
-        throw error;
-      }),
-      this.ptero.listDatabases(identifier),
-    ]);
-    return {
-      locked,
-      state,
-      databases: databases.map((database) => ({
-        id: database.id,
-        name: database.name,
-        username: database.username,
-        host: database.host.address,
-        port: database.host.port,
-        pluginHost: this.plugins.pluginHost(database.host.address),
-        connectionsFrom: database.connections_from,
-      })),
-    };
   }
 
   async tables(user: UserRow, identifier: string, databaseId: string, refresh = false): Promise<DbTable[]> {
@@ -374,7 +357,7 @@ export class DbBrowserService implements OnModuleDestroy {
     values: Record<string, unknown>,
   ): Promise<void> {
     await this.requireAccess(user, identifier);
-    await this.assertUnlocked(identifier);
+    await this.assertUnlocked(user, identifier, databaseId);
     await this.run(identifier, databaseId, async (entry) => {
       const design = await this.loadDesign(entry, table);
       this.checkWritable(design);
@@ -407,7 +390,7 @@ export class DbBrowserService implements OnModuleDestroy {
     values: Record<string, unknown>,
   ): Promise<{ insertId: string | null }> {
     await this.requireAccess(user, identifier);
-    await this.assertUnlocked(identifier);
+    await this.assertUnlocked(user, identifier, databaseId);
     return this.run(identifier, databaseId, async (entry) => {
       const design = await this.loadDesign(entry, table);
       this.checkWritable(design);
@@ -437,7 +420,7 @@ export class DbBrowserService implements OnModuleDestroy {
     await this.requireAccess(user, identifier);
     if (keys.length === 0) throw new BadRequestException('Select at least one record.');
     if (keys.length > MAX_DELETE) throw new BadRequestException(`Delete at most ${MAX_DELETE} records at a time.`);
-    await this.assertUnlocked(identifier);
+    await this.assertUnlocked(user, identifier, databaseId);
     return this.run(identifier, databaseId, async (entry) => {
       const design = await this.loadDesign(entry, table);
       this.checkWritable(design);

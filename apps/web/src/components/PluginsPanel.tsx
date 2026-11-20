@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Link } from 'react-router';
 import type {
   PluginInfo,
   PluginScan,
@@ -160,11 +161,21 @@ function DatabasesCard({
                     )}
                   </div>
                 </div>
-                {can('database.view_password') && (
-                  <Button variant="ghost" onClick={() => void reveal(database.id)} busy={busy === database.id}>
-                    {shown[database.id] ? 'Hide details' : 'Connection details'}
-                  </Button>
-                )}
+                <div className="flex gap-1">
+                  {can('database.view_password') && (
+                    <Link
+                      to={`/databases?db=${encodeURIComponent(`${identifier}/${database.id}`)}`}
+                      className="rounded-lg px-3.5 py-2 text-sm font-medium text-ink-300 hover:bg-ink-800 hover:text-ink-100"
+                    >
+                      Browse
+                    </Link>
+                  )}
+                  {can('database.view_password') && (
+                    <Button variant="ghost" onClick={() => void reveal(database.id)} busy={busy === database.id}>
+                      {shown[database.id] ? 'Hide details' : 'Connection details'}
+                    </Button>
+                  )}
+                </div>
               </div>
               {shown[database.id] && <Credentials credentials={shown[database.id]!} />}
             </li>

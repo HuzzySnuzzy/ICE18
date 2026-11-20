@@ -34,6 +34,7 @@ export function Layout() {
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:pb-0">
           <NavItem to="/servers">Servers</NavItem>
+          <NavItem to="/databases">Databases</NavItem>
           <NavItem to="/account">Account</NavItem>
           {user.isAdmin && <NavItem to="/admin">Admin</NavItem>}
         </nav>

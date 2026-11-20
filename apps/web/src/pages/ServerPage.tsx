@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { PowerSignal, ServerPermission, ServerResources, ServerSummary } from '@ice18/shared';
-import { DatabasePanel } from '../components/DatabasePanel';
 import { PluginsPanel } from '../components/PluginsPanel';
 import { Terminal, type TerminalHandle } from '../components/Terminal';
 import { Alert, Badge, Button, Spinner, StateBadge, cx } from '../components/ui';
@@ -23,7 +22,7 @@ export function ServerPage() {
   const { identifier = '' } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
-  const tab = requestedTab === 'plugins' || requestedTab === 'database' ? requestedTab : 'console';
+  const tab = requestedTab === 'plugins' ? requestedTab : 'console';
   const [server, setServer] = useState<ServerSummary | null>(null);
   const [initial, setInitial] = useState<ServerResources | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -159,7 +158,6 @@ export function ServerPage() {
           [
             ['console', 'Console'],
             ['plugins', 'Plugins & databases'],
-            ['database', 'Database'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -231,13 +229,6 @@ export function ServerPage() {
         </div>
       </div>
       {tab === 'plugins' && <PluginsPanel server={server} />}
-      {tab === 'database' && (
-        <DatabasePanel
-          server={server}
-          liveState={live.status === 'connected' ? state : null}
-          onStop={can('control.stop') ? () => power('stop') : undefined}
-        />
-      )}
     </>
   );
 }

@@ -43,6 +43,7 @@ describe('LuckPerms', () => {
       storage: 'local',
       summary: 'Local storage (h2)',
       database: null,
+      host: null,
     });
   });
 
@@ -65,6 +66,7 @@ describe('LuckPerms', () => {
       storage: 'mysql',
       summary: 'MySQL: s12_luckperms on 172.18.0.1:3306',
       database: 's12_luckperms',
+      host: '172.18.0.1:3306',
     });
   });
 });

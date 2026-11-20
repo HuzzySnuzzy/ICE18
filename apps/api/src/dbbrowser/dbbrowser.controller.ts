@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
-import type { DbOverview, DbRowsPage, DbTable, DbTableDesign } from '@ice18/shared';
+import type { DatabaseLockStatus, DbRowsPage, DbTable, DbTableDesign } from '@ice18/shared';
 import { CurrentUser } from '../auth/guards';
 import { parseBody } from '../common/validation';
 import type { UserRow } from '../db/schema';
@@ -17,9 +17,13 @@ const deleteSchema = z.object({ keys: z.array(rowKey).min(1).max(100) });
 export class DbBrowserController {
   constructor(private readonly browser: DbBrowserService) {}
 
-  @Get()
-  overview(@CurrentUser() user: UserRow, @Param('identifier') identifier: string): Promise<DbOverview> {
-    return this.browser.overview(user, identifier);
+  @Get(':databaseId/status')
+  status(
+    @CurrentUser() user: UserRow,
+    @Param('identifier') identifier: string,
+    @Param('databaseId') databaseId: string,
+  ): Promise<DatabaseLockStatus> {
+    return this.browser.status(user, identifier, databaseId);
   }
 
   @Get(':databaseId/tables')

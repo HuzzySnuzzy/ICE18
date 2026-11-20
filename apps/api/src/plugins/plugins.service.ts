@@ -15,10 +15,11 @@ import { PterodactylError } from '../pterodactyl/pterodactyl.http';
 import { PterodactylService } from '../pterodactyl/pterodactyl.service';
 import type { PteroServerDatabase } from '../pterodactyl/pterodactyl.types';
 import { ServersService } from '../servers/servers.service';
+import { MAX_CONFIG_BYTES, mapLimited, readPluginConfig } from './files';
+import { DatabaseUsageService } from './usage.service';
 import { ConfigError, applyRecipe, findDatabaseSettings, findRecipe, readRecipeState } from './recipes';
 
 const CACHE_MS = 60_000;
-const MAX_CONFIG_BYTES = 512 * 1024;
 const SCAN_CONCURRENCY = 4;
 /** Folders in /plugins that aren't plugins. */
 const IGNORED_FOLDERS = new Set(['bstats', 'pluginmetrics', 'update', '.paper-remapped', 'spark']);
@@ -36,18 +37,6 @@ function timestamp(date = new Date()): string {
   );
 }
 
-async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index]!);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
 
 /**
  * Finds plugins that can use MySQL and points them at a server database.
@@ -62,6 +51,7 @@ export class PluginsService {
     private readonly servers: ServersService,
     private readonly ptero: PterodactylService,
     private readonly audit: AuditService,
+    private readonly usage: DatabaseUsageService,
     @Inject(CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -99,31 +89,6 @@ export class PluginsService {
       return text.length > MAX_CONFIG_BYTES ? null : text;
     } catch (error) {
       if (error instanceof PterodactylError && (error.status === 404 || error.status === 400)) return null;
-      throw error;
-    }
-  }
-
-  /**
-   * For scans: lists the plugin folder first and only reads the file if it's there (some
-   * Wings versions answer a missing file with a 500), and never throws: one unreadable
-   * plugin shouldn't break the whole scan.
-   */
-  private async tryReadConfig(
-    identifier: string,
-    folder: string,
-    fileName: string,
-  ): Promise<{ text: string } | { missing: true } | { error: string }> {
-    try {
-      const files = await this.ptero.listFiles(identifier, `/plugins/${folder}`);
-      const entry = files.find((file) => file.is_file && file.name === fileName);
-      if (!entry) return { missing: true };
-      if (entry.size > MAX_CONFIG_BYTES) return { error: `${fileName} is too large to scan.` };
-      return { text: await this.ptero.readFile(identifier, `/plugins/${folder}/${fileName}`) };
-    } catch (error) {
-      if (error instanceof PterodactylError) {
-        if (error.status === 404) return { missing: true };
-        return { error: `Couldn't read ${fileName} (Pterodactyl/Wings error ${error.status}). Try Rescan.` };
-      }
       throw error;
     }
   }
@@ -200,7 +165,7 @@ export class PluginsService {
     const recipe = findRecipe(folder) ?? (jar ? findRecipe(jar) : undefined);
     if (recipe) {
       const configFile = `/plugins/${folder}/${recipe.configFile}`;
-      const read = await this.tryReadConfig(identifier, folder, recipe.configFile);
+      const read = await readPluginConfig(this.ptero, identifier, folder, recipe.configFile);
       const base = { name: folder, folder, jar, support: 'supported' as const, recipeId: recipe.id, configFile };
       if ('missing' in read) {
         return { ...base, storage: 'not-generated', summary: 'Start the server once so the plugin creates its config.' };
@@ -215,7 +180,7 @@ export class PluginsService {
     }
 
     const configFile = `/plugins/${folder}/config.yml`;
-    const read = await this.tryReadConfig(identifier, folder, 'config.yml');
+    const read = await readPluginConfig(this.ptero, identifier, folder, 'config.yml');
     if ('error' in read) return { name: folder, folder, jar, support: 'none', summary: read.error };
     const settingsPath = 'text' in read ? findDatabaseSettings(read.text) : null;
     if (settingsPath !== null) {
@@ -348,6 +313,7 @@ export class PluginsService {
 
     await this.audit.record(user.id, 'server.plugin.database_setup', identifier, `${recipe.name} -> ${database.name}`);
     this.cache.delete(identifier);
+    this.usage.invalidate();
     const { password: _password, ...publicDatabase } = database;
     return { plugin: recipe.name, configFile, backupFile, database: publicDatabase, changed: updated.changed };
   }

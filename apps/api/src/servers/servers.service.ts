@@ -71,6 +71,12 @@ export class ServersService {
     );
   }
 
+  /** Every server on the panel (identifier and name), whoever owns it. For system checks only. */
+  async allServers(): Promise<Array<{ identifier: string; name: string }>> {
+    if (!this.ptero.configured) return [];
+    return (await this.allPterodactylServers()).map((server) => ({ identifier: server.identifier, name: server.name }));
+  }
+
   async listForUser(user: UserRow): Promise<ServerSummary[]> {
     if (!this.ptero.configured) return [];
     const servers = await this.allPterodactylServers();
