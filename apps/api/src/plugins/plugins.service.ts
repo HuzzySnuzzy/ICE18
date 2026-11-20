@@ -94,7 +94,7 @@ export class PluginsService {
   }
 
   async scan(user: UserRow, identifier: string, refresh = false): Promise<PluginScan> {
-    const access = await this.requirePermissions(user, identifier, ['file.read']);
+    const access = await this.requirePermissions(user, identifier, ['file.read', 'file.read-content']);
     const cached = this.cache.get(identifier);
     if (!refresh && cached && Date.now() - cached.at < CACHE_MS) return cached.scan;
 
@@ -243,7 +243,7 @@ export class PluginsService {
   }
 
   async setup(user: UserRow, identifier: string, folder: string, request: PluginSetupRequest): Promise<PluginSetupResult> {
-    const needed: ServerPermission[] = ['file.read', 'file.update', 'database.read', 'database.view_password'];
+    const needed: ServerPermission[] = ['file.read', 'file.read-content', 'file.update', 'database.read', 'database.view_password'];
     if (request.newDatabaseName) needed.push('database.create');
     await this.requirePermissions(user, identifier, needed);
 

@@ -8,7 +8,8 @@
  *   1. the path is a plain, well-formed API path (no "..", no encoded characters), and
  *   2. it does NOT match any FORBIDDEN rule (these win over everything), and
  *   3. it DOES match an ALLOWED rule (anything not listed is refused by default), and
- *   4. for file writes, the target file is a plugin config file (see SAFE_CONFIG_WRITE).
+ *   4. for file writes, the target file is a plugin config file (see SAFE_CONFIG_WRITE), and
+ *   5. for file downloads, the file is a SQLite database in a plugin folder (see SAFE_DB_DOWNLOAD).
  *
  * To support a new Pterodactyl feature, add the exact endpoint to ALLOWED_RULES.
  * Never remove or weaken a FORBIDDEN rule: they are the guarantee that ICE18 cannot
@@ -108,10 +109,22 @@ export const ALLOWED_RULES: readonly AllowedRule[] = [
   route('POST', '/api/client/servers/:id/files/write'),
   route('GET', '/api/client/servers/:id/databases'),
   route('POST', '/api/client/servers/:id/databases'),
+
+  // Local database files: download a copy of SQLite files in plugin folders to view them
+  // read-only (see SAFE_DB_DOWNLOAD). Nothing is ever uploaded back.
+  route('GET', '/api/client/servers/:id/files/download'),
 ];
 
 const FILE_WRITE_PATH = /^\/api\/client\/servers\/[^/]+\/files\/write$/;
 const FILE_READ_PATH = /^\/api\/client\/servers\/[^/]+\/files\/(list|contents)$/;
+const FILE_DOWNLOAD_PATH = /^\/api\/client\/servers\/[^/]+\/files\/download$/;
+
+/**
+ * The only files ICE18 may download: SQLite database files (and their WAL journal)
+ * inside a plugin's folder, or one folder below it.
+ */
+export const SAFE_DB_DOWNLOAD =
+  /^\/plugins\/[A-Za-z0-9 _.+-]{1,64}(\/[A-Za-z0-9 _.+-]{1,64})?\/[A-Za-z0-9 _.+-]{1,96}\.(db|sqlite|sqlite3|db3)(-wal)?$/;
 
 /**
  * The only files ICE18 may write: YAML configs inside a plugin's folder, or ICE18's
@@ -153,6 +166,15 @@ export function checkPterodactylRequest(
       return {
         allowed: false,
         reason: `ICE18 may only write plugin config files (/plugins/<plugin>/<name>.yml), not ${JSON.stringify(file)}.`,
+      };
+    }
+  }
+  if (FILE_DOWNLOAD_PATH.test(path)) {
+    const file = query.file;
+    if (!safeFilePath(file) || !SAFE_DB_DOWNLOAD.test(file)) {
+      return {
+        allowed: false,
+        reason: `ICE18 may only download SQLite files inside plugin folders, not ${JSON.stringify(file)}.`,
       };
     }
   }

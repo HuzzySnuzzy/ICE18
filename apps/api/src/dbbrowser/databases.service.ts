@@ -4,6 +4,7 @@ import type {
   DatabaseLockStatus,
   DatabaseUsage,
   DatabaseUsageIndex,
+  LocalDatabaseFile,
   PanelDatabase,
   ServerSummary,
 } from '@ice18/shared';
@@ -112,6 +113,16 @@ export class DatabasesService {
       scannedAt: new Date(index.at).toISOString(),
       failedServers: user.isAdmin ? index.failedServers : 0,
     };
+  }
+
+  /** SQLite/H2 files in plugin folders on servers where the viewer can see files. */
+  async localFiles(user: UserRow, refresh = false): Promise<LocalDatabaseFile[]> {
+    if (refresh) this.usage.invalidate();
+    const [index, visibleServers] = await Promise.all([this.usage.get(USAGE_MAX_AGE_VIEW_MS), this.servers.listForUser(user)]);
+    const readable = new Set(
+      visibleServers.filter((server) => server.permissions.includes('file.read')).map((server) => server.identifier),
+    );
+    return index.files.filter((file) => readable.has(file.serverIdentifier));
   }
 
   private async serverState(identifier: string): Promise<string> {

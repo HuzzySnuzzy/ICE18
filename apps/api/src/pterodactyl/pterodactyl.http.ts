@@ -103,3 +103,59 @@ export class PterodactylHttp {
     return payload as T;
   }
 }
+
+/**
+ * Downloads a file from a signed Wings URL (as returned by Pterodactyl's files/download)
+ * into `destination`. GET only, no redirects, and aborts past `maxBytes`. Only used for
+ * files the safety rules allowed Pterodactyl to sign (SQLite files in plugin folders).
+ */
+export async function downloadSignedFile(
+  signedUrl: string,
+  destination: string,
+  maxBytes: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<number> {
+  const url = new URL(signedUrl);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new PterodactylError(`Refusing to download from ${url.protocol} URL.`, 0);
+  }
+  const { createWriteStream } = await import('node:fs');
+  const { rm } = await import('node:fs/promises');
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(10 * 60_000) });
+  } catch (error) {
+    throw new PterodactylError(`Could not reach the server's node (Wings) at ${url.host}: ${(error as Error).message}`, 0);
+  }
+  if (!response.ok || !response.body) {
+    throw new PterodactylError(`The server's node (Wings) refused the download (${response.status}).`, response.status);
+  }
+  const declared = Number(response.headers.get('content-length') ?? 0);
+  if (declared > maxBytes) {
+    await response.body.cancel();
+    throw new PterodactylError(`The file is ${Math.round(declared / 1048576)} MB, more than the ${Math.round(maxBytes / 1048576)} MB preview limit.`, 413);
+  }
+
+  const out = createWriteStream(destination, { mode: 0o600 });
+  let written = 0;
+  try {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      written += value.byteLength;
+      if (written > maxBytes) {
+        await reader.cancel();
+        throw new PterodactylError(`The file is larger than the ${Math.round(maxBytes / 1048576)} MB preview limit.`, 413);
+      }
+      if (!out.write(value)) await new Promise<void>((resolve) => out.once('drain', () => resolve()));
+    }
+    await new Promise<void>((resolve, reject) => out.end((error?: Error | null) => (error ? reject(error) : resolve())));
+    return written;
+  } catch (error) {
+    out.destroy();
+    await rm(destination, { force: true });
+    throw error;
+  }
+}

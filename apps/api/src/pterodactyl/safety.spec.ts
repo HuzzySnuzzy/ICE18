@@ -146,3 +146,29 @@ describe('file and database rules', () => {
     }
   });
 });
+
+describe('database file downloads', () => {
+  const download = (file: unknown) =>
+    checkPterodactylRequest('GET', '/api/client/servers/abcd1234/files/download', ALLOWED_RULES, { file: file as string }).allowed;
+
+  it('allows SQLite files in plugin folders', () => {
+    expect(download('/plugins/CoreProtect/database.db')).toBe(true);
+    expect(download('/plugins/Plan/database.db-wal')).toBe(true);
+    expect(download('/plugins/Shop/data/shops.sqlite')).toBe(true);
+    expect(download('/plugins/Jobs/jobs.sqlite3')).toBe(true);
+  });
+
+  it.each([
+    ['nothing', undefined],
+    ['a world', '/world/level.dat'],
+    ['server.properties', '/server.properties'],
+    ['a plugin jar', '/plugins/LuckPerms.jar'],
+    ['a config file', '/plugins/LuckPerms/config.yml'],
+    ['a database outside plugins', '/database.db'],
+    ['too deep', '/plugins/A/b/c/data.db'],
+    ['traversal', '/plugins/A/../../secret.db'],
+    ['an H2 file', '/plugins/LuckPerms/luckperms-h2-v2.mv.db.bak'],
+  ])('refuses %s', (_label, file) => {
+    expect(download(file)).toBe(false);
+  });
+});

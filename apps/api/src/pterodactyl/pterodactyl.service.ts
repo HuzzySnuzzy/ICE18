@@ -1,7 +1,7 @@
 import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { PowerSignal } from '@ice18/shared';
 import { CONFIG, isPterodactylConfigured, type AppConfig } from '../config/config';
-import { PterodactylHttp } from './pterodactyl.http';
+import { PterodactylHttp, downloadSignedFile } from './pterodactyl.http';
 import type {
   PteroFileObject,
   PteroServerDatabase,
@@ -161,5 +161,15 @@ export class PterodactylService {
       { body: { database: name, remote: '%' } },
     );
     return result.attributes;
+  }
+
+  /** Downloads a copy of a SQLite file from a plugin folder (the safety rules refuse anything else). */
+  async downloadFile(identifier: string, file: string, destination: string, maxBytes: number): Promise<number> {
+    const signed = await this.cli().request<PteroItem<{ url: string }>>(
+      'GET',
+      `/api/client/servers/${assertIdentifier(identifier)}/files/download`,
+      { query: { file } },
+    );
+    return downloadSignedFile(signed.attributes.url, destination, maxBytes);
   }
 }

@@ -378,7 +378,7 @@ export function PluginsPanel({ server }: { server: ServerSummary }) {
     void load(false);
   }, [load]);
 
-  if (!can('file.read')) {
+  if (!can('file.read') || !can('file.read-content')) {
     return <Alert tone="yellow">You need file access on this server to see its plugins.</Alert>;
   }
   if (!scan) {

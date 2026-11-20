@@ -28,6 +28,7 @@ export const SERVER_PERMISSIONS = [
   'control.stop',
   'control.restart',
   'file.read',
+  'file.read-content',
   'file.update',
   'database.read',
   'database.create',
@@ -288,4 +289,36 @@ export interface DatabaseLockStatus {
   locked: boolean;
   servers: DatabaseLockServer[];
   checkedAt: string;
+}
+
+// ---- Local database files (SQLite / H2 inside plugin folders) ----
+
+/**
+ * in-use:       the plugin stores its data in this file.
+ * leftover:     the plugin has switched to MySQL; this is an old copy.
+ * unreferenced: the plugin's config doesn't mention it (a "loose" database file).
+ */
+export type LocalDatabaseStatus = 'in-use' | 'leftover' | 'unreferenced';
+
+export interface LocalDatabaseFile {
+  /** Opaque id used in URLs for this file. */
+  key: string;
+  serverIdentifier: string;
+  serverName: string;
+  /** Plugin folder name. */
+  plugin: string;
+  path: string;
+  name: string;
+  size: number;
+  modifiedAt: string | null;
+  /** sqlite files can be opened; h2 files (Java-only) can only be listed. */
+  kind: 'sqlite' | 'h2';
+  status: LocalDatabaseStatus;
+  note: string;
+}
+
+export interface LocalDatabaseSnapshot {
+  takenAt: string;
+  size: number;
+  tables: DbTable[];
 }

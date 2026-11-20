@@ -10,10 +10,12 @@ import type {
   DbRowsPage,
   DbTable,
   DbTableDesign,
+  LocalDatabaseFile,
+  LocalDatabaseSnapshot,
   PanelDatabase,
 } from '@ice18/shared';
 import { api, errorMessage } from '../lib/api';
-import { formatDate } from '../lib/format';
+import { formatBytes, formatDate } from '../lib/format';
 import { Alert, Badge, Button, Spinner, StateBadge, cx } from './ui';
 
 const PAGE_SIZE = 100;
@@ -84,8 +86,10 @@ interface OpenObject {
   databaseName: string;
   /** Empty for the database's info tab. */
   table: string;
-  type: 'table' | 'view' | 'info';
+  type: 'table' | 'view' | 'info' | 'file-info';
   view: 'datasheet' | 'design';
+  /** Set for local database files (SQLite) instead of a MySQL database. */
+  fileKey?: string;
 }
 
 const databaseKey = (database: { serverIdentifier: string; id: string }) => `${database.serverIdentifier}/${database.id}`;
@@ -412,7 +416,7 @@ function Datasheet({
           </button>
         </div>
       )}
-      {design.readOnlyReason && !locked && (
+      {design.readOnlyReason && (
         <div className="border-b border-ink-700 bg-ink-800/60 px-3 py-1.5 text-xs text-ink-300">{design.readOnlyReason}</div>
       )}
 
@@ -606,7 +610,11 @@ function Datasheet({
         {loading && page && <Spinner className="ml-1 size-3" />}
         <span className="ml-auto text-ink-500">
           {selected.size > 0 ? `${selected.size} selected · ` : ''}
-          {canEdit ? 'Double-click a cell to edit · Enter saves · Esc cancels' : locked ? 'Read-only while a server using this database is online' : ''}
+          {canEdit
+            ? 'Double-click a cell to edit · Enter saves · Esc cancels'
+            : design.editable && locked
+              ? 'Read-only while a server using this database is online'
+              : 'Read-only'}
         </span>
       </div>
     </div>
@@ -639,7 +647,9 @@ function ObjectView({
   locked: boolean;
   onStatus: (handle: DatasheetHandle | null, design: DbTableDesign | null) => void;
 }) {
-  const base = `/servers/${encodeURIComponent(object.serverIdentifier)}/db/${encodeURIComponent(object.databaseId)}/tables/${encodeURIComponent(object.table)}`;
+  const base = object.fileKey
+    ? `/servers/${encodeURIComponent(object.serverIdentifier)}/dbfile/${object.fileKey}/tables/${encodeURIComponent(object.table)}`
+    : `/servers/${encodeURIComponent(object.serverIdentifier)}/db/${encodeURIComponent(object.databaseId)}/tables/${encodeURIComponent(object.table)}`;
   const [design, setDesign] = useState<DbTableDesign | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -797,23 +807,97 @@ function DatabaseInfo({
   );
 }
 
+// ---------- local database file info ----------
+
+const statusLabel: Record<LocalDatabaseFile['status'], { text: string; tone: 'green' | 'yellow' | 'neutral' }> = {
+  'in-use': { text: 'In use', tone: 'green' },
+  leftover: { text: 'Leftover', tone: 'yellow' },
+  unreferenced: { text: 'Not in config', tone: 'neutral' },
+};
+
+function FileStatus({ file }: { file: LocalDatabaseFile }) {
+  const label = statusLabel[file.status];
+  return <Badge tone={label.tone}>{label.text}</Badge>;
+}
+
+function FileInfo({ file, snapshot }: { file: LocalDatabaseFile; snapshot: LocalDatabaseSnapshot | string | undefined }) {
+  return (
+    <div className="space-y-6 overflow-auto p-5">
+      <section>
+        <h3 className="mb-3 text-xs font-semibold tracking-wide text-ink-400 uppercase">Where it lives</h3>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[150px_1fr]">
+          <Property label="File">
+            <span className="font-mono">{file.name}</span>
+          </Property>
+          <Property label="Server">
+            <Link to={`/servers/${file.serverIdentifier}?tab=plugins`} className="text-ice-400 hover:text-ice-300">
+              {file.serverName}
+            </Link>
+          </Property>
+          <Property label="Plugin">{file.plugin}</Property>
+          <Property label="Path">
+            <span className="font-mono text-xs">{file.path}</span>
+          </Property>
+          <Property label="Size">{formatBytes(file.size)}</Property>
+          {file.modifiedAt && <Property label="Last modified">{formatDate(file.modifiedAt)}</Property>}
+          <Property label="Type">{file.kind === 'sqlite' ? 'SQLite' : 'H2 (Java)'}</Property>
+        </dl>
+      </section>
+      <section>
+        <h3 className="mb-3 text-xs font-semibold tracking-wide text-ink-400 uppercase">Status</h3>
+        <div className="flex items-start gap-3 text-sm">
+          <FileStatus file={file} />
+          <p className="text-ink-300">{file.note}</p>
+        </div>
+      </section>
+      <section>
+        <h3 className="mb-3 text-xs font-semibold tracking-wide text-ink-400 uppercase">Data</h3>
+        {file.kind === 'h2' ? (
+          <p className="text-sm text-ink-400">
+            H2 is a Java-only database format, so ICE18 can't open it. To browse this data here, move the plugin to MySQL (for
+            known plugins, use the server's <b>Plugins &amp; databases</b> tab; LuckPerms can copy its data across with{' '}
+            <span className="font-mono">/lp export</span> and <span className="font-mono">/lp import</span>).
+          </p>
+        ) : typeof snapshot === 'string' ? (
+          <Alert>{snapshot}</Alert>
+        ) : snapshot ? (
+          <p className="text-sm text-ink-300">
+            Read-only snapshot taken {formatDate(snapshot.takenAt)} ({formatBytes(snapshot.size)}), {snapshot.tables.length} table
+            {snapshot.tables.length === 1 ? '' : 's'}. Open them from the navigation pane. Use <b>New snapshot</b> to see the latest data.
+          </p>
+        ) : (
+          <p className="text-sm text-ink-400">Expand the file in the navigation pane to download a read-only snapshot and see its tables.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
 // ---------- navigation pane ----------
 
 function NavigationPane({
   databases,
   usage,
+  files,
+  snapshots,
+  loadSnapshot,
   isAdmin,
   expanded,
   setExpanded,
   onOpen,
+  onOpenFile,
   activeId,
 }: {
   databases: PanelDatabase[];
   usage: DatabaseUsageIndex | null;
+  files: LocalDatabaseFile[] | null;
+  snapshots: Record<string, LocalDatabaseSnapshot | string>;
+  loadSnapshot: (file: LocalDatabaseFile, refresh?: boolean) => void;
   isAdmin: boolean;
   expanded: Record<string, boolean>;
   setExpanded: (update: (current: Record<string, boolean>) => Record<string, boolean>) => void;
   onOpen: (database: PanelDatabase, table?: DbTable) => void;
+  onOpenFile: (file: LocalDatabaseFile, table?: DbTable) => void;
   activeId: string | null;
 }) {
   const [tables, setTables] = useState<Record<string, DbTable[] | string>>({});
@@ -970,6 +1054,20 @@ function NavigationPane({
           </div>
         ))}
 
+        {files && files.length > 0 && (
+          <LocalFilesSection
+            files={files.filter(
+              (file) => !needle || [file.name, file.plugin, file.serverName].some((value) => value.toLowerCase().includes(needle)),
+            )}
+            snapshots={snapshots}
+            loadSnapshot={loadSnapshot}
+            expanded={expanded}
+            setExpanded={setExpanded}
+            onOpenFile={onOpenFile}
+            activeId={activeId}
+          />
+        )}
+
         {isAdmin && unmanaged.length > 0 && (
           <div className="mt-2 border-t border-ink-700 pt-1">
             <div className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase" title="Plugins point at these, but Pterodactyl doesn't manage them">
@@ -1002,6 +1100,123 @@ function NavigationPane({
   );
 }
 
+const fileObjectKey = (file: LocalDatabaseFile) => `file:${file.serverIdentifier}/${file.key}`;
+
+function LocalFilesSection({
+  files,
+  snapshots,
+  loadSnapshot,
+  expanded,
+  setExpanded,
+  onOpenFile,
+  activeId,
+}: {
+  files: LocalDatabaseFile[];
+  snapshots: Record<string, LocalDatabaseSnapshot | string>;
+  loadSnapshot: (file: LocalDatabaseFile, refresh?: boolean) => void;
+  expanded: Record<string, boolean>;
+  setExpanded: (update: (current: Record<string, boolean>) => Record<string, boolean>) => void;
+  onOpenFile: (file: LocalDatabaseFile, table?: DbTable) => void;
+  activeId: string | null;
+}) {
+  const byServer = new Map<string, LocalDatabaseFile[]>();
+  for (const file of files) byServer.set(file.serverName, [...(byServer.get(file.serverName) ?? []), file]);
+
+  useEffect(() => {
+    for (const file of files) {
+      const key = fileObjectKey(file);
+      if (expanded[key] && file.kind === 'sqlite' && snapshots[key] === undefined) loadSnapshot(file);
+    }
+  }, [files, expanded, snapshots, loadSnapshot]);
+
+  return (
+    <div className="mt-2 border-t border-ink-700 pt-1">
+      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase" title="SQLite and H2 files inside plugin folders">
+        Local database files
+      </div>
+      {[...byServer.entries()].map(([serverName, list]) => (
+        <div key={serverName} className="mb-1">
+          <div className="truncate px-3 pt-1 text-[11px] text-ink-400">{serverName}</div>
+          {list.map((file) => {
+            const key = fileObjectKey(file);
+            const open = expanded[key] ?? false;
+            const snapshot = snapshots[key];
+            return (
+              <div key={key}>
+                <div className={cx('flex items-start gap-1 px-2 py-1 hover:bg-ink-800', activeId === `${key}/` && 'bg-ice-500/15')}>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
+                    className="mt-0.5 rounded p-0.5 text-ink-400 hover:text-ink-100 disabled:opacity-30"
+                    aria-label={open ? 'Collapse' : 'Expand'}
+                    disabled={file.kind !== 'sqlite'}
+                    title={file.kind !== 'sqlite' ? "H2 files can't be opened" : undefined}
+                  >
+                    {Icon.chevron(open)}
+                  </button>
+                  <button type="button" onClick={() => onOpenFile(file)} className="flex min-w-0 flex-1 items-start gap-1.5 text-left" title={file.path}>
+                    <span className={cx('mt-0.5', file.kind === 'sqlite' ? 'text-ink-300' : 'text-ink-500')}>{Icon.database}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate font-mono text-xs text-ink-100">{file.name}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 text-[11px] text-ink-500">
+                        <span className="truncate">
+                          {file.plugin} · {formatBytes(file.size)}
+                        </span>
+                        <FileStatus file={file} />
+                      </span>
+                    </span>
+                  </button>
+                </div>
+                {open && (
+                  <div className="pb-1">
+                    {snapshot === undefined && (
+                      <div className="flex items-center gap-2 py-1 pl-10 text-xs text-ink-400">
+                        <Spinner className="size-3" /> Downloading snapshot…
+                      </div>
+                    )}
+                    {typeof snapshot === 'string' && (
+                      <div className="px-3 py-1 pl-10 text-xs text-red-300">
+                        {snapshot}{' '}
+                        <button type="button" className="text-ice-400 underline" onClick={() => loadSnapshot(file, true)}>
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {snapshot && typeof snapshot !== 'string' && (
+                      <>
+                        {snapshot.tables.length === 0 && <div className="py-1 pl-10 text-xs text-ink-500">No tables.</div>}
+                        {snapshot.tables.map((table) => (
+                          <button
+                            key={table.name}
+                            type="button"
+                            onClick={() => onOpenFile(file, table)}
+                            className={cx(
+                              'flex w-full items-center gap-1.5 py-0.5 pr-2 pl-10 text-left text-xs',
+                              activeId === `${key}/${table.name}` ? 'bg-ice-500/20 text-ice-100' : 'text-ink-200 hover:bg-ink-800',
+                            )}
+                          >
+                            <span className="text-ink-400">{table.type === 'view' ? Icon.view : Icon.table}</span>
+                            <span className="truncate">{table.name}</span>
+                            {table.rows !== null && (
+                              <span className="ml-auto pl-2 text-[10px] text-ink-500 tabular-nums">{table.rows.toLocaleString()}</span>
+                            )}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------- explorer ----------
 
 export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
@@ -1016,11 +1231,16 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
   const [statuses, setStatuses] = useState<Record<string, DatabaseLockStatus>>({});
   const [sheet, setSheet] = useState<{ handle: DatasheetHandle | null; design: DbTableDesign | null }>({ handle: null, design: null });
   const [stopping, setStopping] = useState<string | null>(null);
+  const [files, setFiles] = useState<LocalDatabaseFile[] | null>(null);
+  const [snapshots, setSnapshots] = useState<Record<string, LocalDatabaseSnapshot | string>>({});
 
   const loadUsage = useCallback(async (refresh = false) => {
     setUsageLoading(true);
     try {
-      setUsage(await api<DatabaseUsageIndex>(`/databases/usage${refresh ? '?refresh=1' : ''}`));
+      // Both come from the same plugin scan; the second request reuses the first one's result.
+      const nextUsage = await api<DatabaseUsageIndex>(`/databases/usage${refresh ? '?refresh=1' : ''}`);
+      setUsage(nextUsage);
+      setFiles(await api<LocalDatabaseFile[]>('/databases/files'));
     } catch {
       /* usage is a nice-to-have */
     } finally {
@@ -1038,9 +1258,11 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
   const active = open.find((object) => object.id === activeId) ?? null;
   const activeDatabase = active ? databases?.find((database) => databaseKey(database) === `${active.serverIdentifier}/${active.databaseId}`) : undefined;
   const activeKey = activeDatabase ? databaseKey(activeDatabase) : null;
+  const activeFile = active?.fileKey ? files?.find((file) => file.key === active.fileKey && file.serverIdentifier === active.serverIdentifier) : undefined;
+  const activeSnapshot = activeFile ? snapshots[fileObjectKey(activeFile)] : undefined;
   const status = activeKey ? statuses[activeKey] : undefined;
   // Until we know, treat data as locked.
-  const locked = status ? status.locked : true;
+  const locked = active?.fileKey ? true : status ? status.locked : true;
 
   const refreshStatus = useCallback(async (database: PanelDatabase) => {
     try {
@@ -1062,6 +1284,43 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
   }, [activeDatabase, refreshStatus]);
 
   const onStatus = useCallback((handle: DatasheetHandle | null, design: DbTableDesign | null) => setSheet({ handle, design }), []);
+
+  const loadSnapshot = useCallback(async (file: LocalDatabaseFile, refresh = false) => {
+    const key = fileObjectKey(file);
+    if (refresh) setSnapshots(({ [key]: _old, ...rest }) => rest);
+    try {
+      const snapshot = await api<LocalDatabaseSnapshot>(
+        `/servers/${encodeURIComponent(file.serverIdentifier)}/dbfile/${file.key}/tables${refresh ? '?refresh=1' : ''}`,
+      );
+      setSnapshots((current) => ({ ...current, [key]: snapshot }));
+    } catch (err) {
+      setSnapshots((current) => ({ ...current, [key]: errorMessage(err) }));
+    }
+  }, []);
+
+  const openFile = useCallback((file: LocalDatabaseFile, table?: DbTable) => {
+    const key = fileObjectKey(file);
+    const id = `${key}/${table?.name ?? ''}`;
+    setOpen((current) =>
+      current.some((entry) => entry.id === id)
+        ? current
+        : [
+            ...current,
+            {
+              id,
+              serverIdentifier: file.serverIdentifier,
+              databaseId: '',
+              databaseName: file.name,
+              table: table?.name ?? '',
+              type: table ? table.type : 'file-info',
+              view: 'datasheet',
+              fileKey: file.key,
+            },
+          ],
+    );
+    setActiveId(id);
+    if (file.kind === 'sqlite') setExpanded((current) => ({ ...current, [key]: true }));
+  }, []);
 
   const openDatabase = useCallback((database: PanelDatabase, table?: DbTable) => {
     const key = databaseKey(database);
@@ -1131,7 +1390,7 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
     );
   }
 
-  const isTable = active && active.type !== 'info';
+  const isTable = active && active.type !== 'info' && active.type !== 'file-info';
   const canChangeRows = Boolean(isTable && active.view === 'datasheet' && sheet.design?.editable && !locked);
   const onlineServers = status?.servers.filter((server) => server.state !== 'offline') ?? [];
 
@@ -1175,6 +1434,26 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
             {usageLoading ? <Spinner className="size-3" /> : '⟳'} Rescan
           </RibbonButton>
         </RibbonGroup>
+        {activeFile && (
+          <div className="ml-auto flex flex-wrap items-center gap-2 px-3">
+            <span className="flex items-center gap-1.5 rounded-full bg-ink-700 px-2.5 py-1 text-xs font-medium text-ink-200">
+              {Icon.lock} {activeFile.kind === 'h2' ? "H2 file · can't be opened" : 'Read-only snapshot'}
+              {activeFile.kind === 'sqlite' && activeSnapshot && typeof activeSnapshot !== 'string' && ` · taken ${new Date(activeSnapshot.takenAt).toLocaleTimeString()}`}
+            </span>
+            {activeFile.kind === 'sqlite' && (
+              <Button
+                variant="secondary"
+                className="py-1 text-xs"
+                onClick={async () => {
+                  await loadSnapshot(activeFile, true);
+                  sheet.handle?.refresh();
+                }}
+              >
+                New snapshot
+              </Button>
+            )}
+          </div>
+        )}
         {activeDatabase && (
           <div className="ml-auto flex flex-wrap items-center gap-2 px-3">
             {!status ? (
@@ -1210,10 +1489,14 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
         <NavigationPane
           databases={databases}
           usage={usage}
+          files={files}
+          snapshots={snapshots}
+          loadSnapshot={(file, refresh) => void loadSnapshot(file, refresh)}
           isAdmin={isAdmin}
           expanded={expanded}
           setExpanded={setExpanded}
           onOpen={openDatabase}
+          onOpenFile={openFile}
           activeId={activeId}
         />
 
@@ -1228,7 +1511,7 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
                 )}
               >
                 <button type="button" onClick={() => setActiveId(object.id)} className="flex items-center gap-1.5" title={`${object.databaseName}${object.table ? `.${object.table}` : ''}`}>
-                  <span className="text-ink-400">{object.type === 'info' ? Icon.database : object.type === 'view' ? Icon.view : Icon.table}</span>
+                  <span className="text-ink-400">{object.type === 'info' || object.type === 'file-info' ? Icon.database : object.type === 'view' ? Icon.view : Icon.table}</span>
                   {object.table || object.databaseName}
                 </button>
                 <button
@@ -1243,7 +1526,13 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
             ))}
           </div>
 
-          {active && activeDatabase ? (
+          {active && activeFile ? (
+            active.type === 'file-info' ? (
+              <FileInfo file={activeFile} snapshot={activeSnapshot} />
+            ) : (
+              <ObjectView key={`${active.id}@${activeSnapshot && typeof activeSnapshot !== 'string' ? activeSnapshot.takenAt : ''}`} object={active} locked onStatus={onStatus} />
+            )
+          ) : active && activeDatabase ? (
             active.type === 'info' ? (
               <DatabaseInfo
                 database={activeDatabase}
@@ -1256,7 +1545,7 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
             )
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-sm text-ink-400">
-              {databases.length === 0 ? (
+              {databases.length === 0 && !files?.length ? (
                 'No databases yet.'
               ) : (
                 <>

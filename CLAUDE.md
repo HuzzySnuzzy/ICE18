@@ -30,6 +30,8 @@ When adding a feature that needs a new Pterodactyl endpoint: add that exact endp
 
 `apps/api/src/dbbrowser/` (Databases page in the web app's left menu): connects to a server's database with that database's own Pterodactyl credentials (so it can only reach that one database). `plugins/usage.service.ts` indexes which plugins on which servers point at which database. Rules: writes call `assertUnlocked()`, which requires the owner server AND every server whose plugins use the database to be `offline` (`lock.ts`), with a usage index at most 2 minutes old and uncached server states; rows are only changed through their full primary key (`validateRowKey`), one row per statement with `LIMIT 1`; deletes run in a transaction and roll back if any row is missing; table and column names are checked against `information_schema` and escaped with `??`, values always go through `?`. No raw SQL, no DDL (DROP/TRUNCATE/ALTER). Keep it that way.
 
+Local database files (`plugins/localfiles.ts`, `dbbrowser/sqlite-snapshots.service.ts`): SQLite/H2 files in plugin folders are found by the usage scan. SQLite files are viewed from a downloaded copy (with its `-wal`) opened with `node:sqlite` and `PRAGMA query_only`; they are never uploaded or written back. Downloads are limited by `SAFE_DB_DOWNLOAD` in the safety rules.
+
 ## Commands
 
 - `pnpm install`, `pnpm build`, `pnpm test`, `pnpm typecheck`

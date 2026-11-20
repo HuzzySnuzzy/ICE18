@@ -1,5 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import type { DatabaseUsageIndex, PanelDatabase } from '@ice18/shared';
+import type { DatabaseUsageIndex, LocalDatabaseFile, PanelDatabase } from '@ice18/shared';
 import { CurrentUser } from '../auth/guards';
 import type { UserRow } from '../db/schema';
 import { DatabasesService } from './databases.service';
@@ -18,5 +18,11 @@ export class DatabasesController {
   @Get('usage')
   usage(@CurrentUser() user: UserRow, @Query('refresh') refresh?: string): Promise<DatabaseUsageIndex> {
     return this.databases.usageIndex(user, refresh === '1');
+  }
+
+  /** SQLite/H2 database files found inside plugin folders, including ones no config mentions. */
+  @Get('files')
+  files(@CurrentUser() user: UserRow, @Query('refresh') refresh?: string): Promise<LocalDatabaseFile[]> {
+    return this.databases.localFiles(user, refresh === '1');
   }
 }
