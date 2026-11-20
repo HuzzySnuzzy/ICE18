@@ -1,0 +1,142 @@
+{
+    "_comment": "Pterodactyl egg for the ICE18 panel. Import it under Admin -> Nests -> Import Egg.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-11-20T00:00:00+00:00",
+    "name": "ICE18 Panel",
+    "author": "ice18@example.com",
+    "description": "ICE18 server panel. Runs on top of this Pterodactyl panel through its API and never deletes, reinstalls or wipes Pterodactyl servers.",
+    "features": null,
+    "docker_images": {
+        "Node.js 22": "ghcr.io/parkervcp/yolks:nodejs_22"
+    },
+    "file_denylist": [],
+    "startup": "node apps/api/dist/main.js",
+    "config": {
+        "files": "{}",
+        "startup": "{\"done\": \"ICE18 panel listening on port\"}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# ICE18 panel install script.\n# Pterodactyl runs this in a temporary container with the server's folder mounted at /mnt/server.\n# It only touches the ICE18 panel's own server folder. Your .env file (if any) is kept.\nset -euo pipefail\n\nREPO=\"${GIT_REPO:-https://github.com/HuzzySnuzzy/ice18}\"\nBRANCH=\"${GIT_BRANCH:-main}\"\n\napt-get update -qq\napt-get install -y -qq git ca-certificates > /dev/null\n\ncd /mnt/server\ngit config --global --add safe.directory /mnt/server\n\nif [ -d .git ]; then\n  echo \"Updating ICE18 from ${REPO} (${BRANCH})\"\n  git fetch --depth 1 origin \"${BRANCH}\"\n  git reset --hard \"origin/${BRANCH}\"\nelse\n  echo \"Downloading ICE18 from ${REPO} (${BRANCH})\"\n  rm -rf /tmp/ice18\n  git clone --depth 1 --branch \"${BRANCH}\" \"${REPO}\" /tmp/ice18\n  cp -a /tmp/ice18/. /mnt/server/\nfi\n\nexport COREPACK_ENABLE_DOWNLOAD_PROMPT=0\ncorepack enable\n# Copy packages into node_modules: the pnpm store in this temporary container is thrown away.\npnpm install --frozen-lockfile --config.package-import-method=copy\npnpm build\n\necho \"ICE18 installed. Start the server to launch the panel.\"\n",
+            "container": "node:22-bookworm-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Git repository",
+            "description": "Where to download ICE18 from.",
+            "env_variable": "GIT_REPO",
+            "default_value": "https://github.com/HuzzySnuzzy/ice18",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Git branch",
+            "description": "Branch to install. Reinstall the server to update.",
+            "env_variable": "GIT_BRANCH",
+            "default_value": "main",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|max:100",
+            "field_type": "text"
+        },
+        {
+            "name": "Database URL",
+            "description": "ICE18's own MySQL/MariaDB database, e.g. mysql://user:password@172.18.0.1:3306/s1_ice18. Create one in this server's Databases tab.",
+            "env_variable": "DATABASE_URL",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|starts_with:mysql://|max:500",
+            "field_type": "text"
+        },
+        {
+            "name": "App secret",
+            "description": "Random string of at least 32 characters (openssl rand -hex 32). Signs login sessions.",
+            "env_variable": "APP_SECRET",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "required|string|min:32|max:200",
+            "field_type": "text"
+        },
+        {
+            "name": "Public URL",
+            "description": "The address people open ICE18 at, e.g. https://ice18.example.com. Leave empty to allow the address in the browser's Host header.",
+            "env_variable": "PUBLIC_URL",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "nullable|url|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Pterodactyl URL",
+            "description": "Your Pterodactyl panel's address, e.g. https://panel.example.com",
+            "env_variable": "PTERODACTYL_URL",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "nullable|url|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Pterodactyl application key",
+            "description": "Admin -> Application API key with read access to servers, users, nodes, locations, nests and eggs.",
+            "env_variable": "PTERODACTYL_APP_KEY",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "nullable|string|max:200",
+            "field_type": "text"
+        },
+        {
+            "name": "Pterodactyl client key",
+            "description": "Client API key of a root admin account (Account -> API Credentials). Used for power actions and consoles.",
+            "env_variable": "PTERODACTYL_CLIENT_KEY",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "nullable|string|max:200",
+            "field_type": "text"
+        },
+        {
+            "name": "Open registration",
+            "description": "Let anyone create an ICE18 account. The first account is always allowed and becomes the admin.",
+            "env_variable": "REGISTRATION_ENABLED",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "Secure cookies",
+            "description": "Set to true when ICE18 is served over HTTPS.",
+            "env_variable": "COOKIE_SECURE",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "Behind a reverse proxy",
+            "description": "Set to true when Nginx, Caddy or Cloudflare sits in front of ICE18.",
+            "env_variable": "TRUST_PROXY",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        }
+    ]
+}

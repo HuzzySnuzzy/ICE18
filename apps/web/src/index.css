@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #060a12;
+  --color-ink-900: #0a101c;
+  --color-ink-850: #0d1524;
+  --color-ink-800: #111a2d;
+  --color-ink-700: #1a2540;
+  --color-ink-600: #263252;
+  --color-ink-500: #3a4870;
+  --color-ink-400: #7482a6;
+  --color-ink-300: #a3aecb;
+  --color-ink-200: #c9d1e4;
+  --color-ink-100: #e7ecf6;
+
+  --color-ice-200: #c4f6ff;
+  --color-ice-300: #8eedff;
+  --color-ice-400: #5ee7ff;
+  --color-ice-500: #22d3ee;
+  --color-ice-600: #0aa9c7;
+  --color-ice-900: #08303d;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+}
+
+/* Let the terminal fill its box. */
+.xterm {
+  height: 100%;
+  padding: 10px 12px;
+}
+.xterm-viewport {
+  background-color: transparent !important;
+}

@@ -1,0 +1,17 @@
+{
+  "name": "ice18",
+  "private": true,
+  "description": "ICE18 game server panel: runs on top of Pterodactyl, with plugin-aware database tools.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @ice18/shared build && pnpm --parallel --filter @ice18/api --filter @ice18/web dev",
+    "start": "node apps/api/dist/main.js",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @ice18/api db:generate"
+  }
+}
