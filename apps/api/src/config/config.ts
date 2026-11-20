@@ -1,8 +1,16 @@
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
 
 export const CONFIG = Symbol('ICE18_CONFIG');
+
+/** Repository root (this file is at apps/api/{src,dist}/config/). */
+const REPO_ROOT = path.resolve(__dirname, '../../../..');
+
+/** Where an auto-generated APP_SECRET is kept (gitignored, survives updates). */
+export const DEFAULT_SECRET_FILE = path.join(REPO_ROOT, '.ice18-secret');
 
 const flag = (fallback: boolean) =>
   z
@@ -12,8 +20,17 @@ const flag = (fallback: boolean) =>
 
 const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
-  DATABASE_URL: z.string().regex(/^mysql:\/\//, 'DATABASE_URL must start with mysql://'),
-  APP_SECRET: z.string().min(32, 'APP_SECRET must be at least 32 characters long'),
+
+  // Database: either separate fields (what Pterodactyl's Databases tab shows) or one URL.
+  DB_HOST: z.string().optional(),
+  DB_PORT: z.coerce.number().int().min(1).max(65535).default(3306),
+  DB_DATABASE: z.string().optional(),
+  DB_USERNAME: z.string().optional(),
+  DB_PASSWORD: z.string().optional(),
+  DATABASE_URL: z.string().regex(/^mysql:\/\//, 'DATABASE_URL must start with mysql://').optional(),
+
+  /** Optional: generated and saved to .ice18-secret when not set. */
+  APP_SECRET: z.string().min(32, 'APP_SECRET must be at least 32 characters long').optional(),
   PUBLIC_URL: z.url().optional(),
   PTERODACTYL_URL: z.url().optional(),
   PTERODACTYL_APP_KEY: z.string().optional(),
@@ -32,22 +49,70 @@ const schema = z.object({
   ICE18_SUPERVISED: flag(false),
 });
 
-export type AppConfig = z.infer<typeof schema>;
+/** Connection settings passed straight to mysql2. Separate fields need no URL-escaping. */
+export type DatabaseConnection =
+  | { uri: string }
+  | { host: string; port: number; database: string; user: string; password: string };
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  // .env in the working directory (the server folder in Pterodactyl), or the repo root.
-  loadDotenv({ path: [path.resolve(process.cwd(), '.env'), path.resolve(__dirname, '../../../../.env')] });
+export type AppConfig = Omit<z.infer<typeof schema>, 'APP_SECRET'> & {
+  APP_SECRET: string;
+  /** Null until the database settings are filled in. */
+  database: DatabaseConnection | null;
+};
+
+export interface LoadConfigOptions {
+  secretFile?: string;
+  loadEnvFiles?: boolean;
+}
+
+/** Uses APP_SECRET when set; otherwise reads or creates a random one in `secretFile`. */
+export function resolveAppSecret(value: string | undefined, secretFile: string): { secret: string; generated: boolean } {
+  if (value) return { secret: value, generated: false };
+  try {
+    const stored = fs.readFileSync(secretFile, 'utf8').trim();
+    if (stored.length >= 32) return { secret: stored, generated: false };
+  } catch {
+    /* not created yet */
+  }
+  const secret = randomBytes(32).toString('hex');
+  fs.writeFileSync(secretFile, `${secret}\n`, { mode: 0o600 });
+  return { secret, generated: true };
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, options: LoadConfigOptions = {}): AppConfig {
+  if (options.loadEnvFiles ?? true) {
+    // .env in the working directory (the server folder in Pterodactyl), or the repo root.
+    loadDotenv({ path: [path.resolve(process.cwd(), '.env'), path.join(REPO_ROOT, '.env')] });
+  }
 
   // Pterodactyl egg variables arrive as empty strings when left blank.
-  const cleaned = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== undefined && value.trim() !== ''));
-  cleaned.PORT = env.SERVER_PORT || env.PORT;
+  const cleaned: Record<string, string | undefined> = Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value !== undefined && value.trim() !== ''),
+  );
+  cleaned.PORT = env.SERVER_PORT || env.PORT || undefined;
 
   const result = schema.safeParse(cleaned);
   if (!result.success) {
     const problems = result.error.issues.map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`).join('\n');
     throw new Error(`ICE18 configuration is invalid:\n${problems}\nSee .env.example for every setting.`);
   }
-  return result.data;
+  const raw = result.data;
+
+  let database: DatabaseConnection | null = null;
+  if (raw.DB_HOST && raw.DB_DATABASE && raw.DB_USERNAME) {
+    database = {
+      host: raw.DB_HOST.trim(),
+      port: raw.DB_PORT,
+      database: raw.DB_DATABASE.trim(),
+      user: raw.DB_USERNAME.trim(),
+      password: raw.DB_PASSWORD ?? '',
+    };
+  } else if (raw.DATABASE_URL) {
+    database = { uri: raw.DATABASE_URL };
+  }
+
+  const { secret } = resolveAppSecret(raw.APP_SECRET, options.secretFile ?? DEFAULT_SECRET_FILE);
+  return { ...raw, APP_SECRET: secret, database };
 }
 
 export function isPterodactylConfigured(config: AppConfig): boolean {

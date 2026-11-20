@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { AppModule } from './app.module';
 import { isPterodactylConfigured, loadConfig } from './config/config';
-import { runMigrations } from './db/database.service';
+import { explainDatabaseError, runMigrations } from './db/database.service';
 import { ConsoleRelay } from './servers/console.relay';
 import { RESTART_FOR_UPDATE_EXIT_CODE, UpdateService } from './updates/update.service';
 
@@ -18,8 +18,33 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('ICE18');
   const config = loadConfig();
 
-  logger.log('Applying database migrations…');
-  await runMigrations(config);
+  if (!config.database) {
+    // Stay up instead of exiting, so Pterodactyl doesn't keep restarting the server.
+    const help = [
+      'ICE18 needs a database before it can start. To set one up:',
+      "  1. Open this server's Databases tab and create a database (Connections from: %).",
+      '  2. Admin -> Servers -> this server -> Startup: fill in Database host, Database name,',
+      '     Database username and Database password from that tab.',
+      '     Use 172.18.0.1 as the host if the tab shows 127.0.0.1 or localhost.',
+      '  3. Restart this server.',
+    ].join('\n');
+    logger.error(help);
+    setInterval(() => logger.warn('Still waiting for database settings. See the steps above.'), 5 * 60_000);
+    return;
+  }
+
+  // Keep retrying instead of exiting: a database that's still starting or a typo shouldn't crash-loop.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      logger.log('Applying database migrations…');
+      await runMigrations(config.database);
+      break;
+    } catch (error) {
+      logger.error(explainDatabaseError(error, config.database));
+      logger.warn(`Retrying in 15 seconds (attempt ${attempt}). Fix the settings and restart the server if this keeps failing.`);
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+    }
+  }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config), { bufferLogs: false });
   app.enableShutdownHooks();

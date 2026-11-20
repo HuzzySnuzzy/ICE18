@@ -69,23 +69,63 @@
             "field_type": "text"
         },
         {
-            "name": "Database URL",
-            "description": "ICE18's own MySQL/MariaDB database, e.g. mysql://user:password@172.18.0.1:3306/s1_ice18. Create one in this server's Databases tab.",
-            "env_variable": "DATABASE_URL",
+            "name": "Database host",
+            "description": "From this server's Databases tab (Endpoint, without the port). Use 172.18.0.1 if it shows 127.0.0.1 or localhost. Can be filled in after creating the server.",
+            "env_variable": "DB_HOST",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Database port",
+            "description": "Usually 3306.",
+            "env_variable": "DB_PORT",
+            "default_value": "3306",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|integer|min:1|max:65535",
+            "field_type": "text"
+        },
+        {
+            "name": "Database name",
+            "description": "From this server's Databases tab, e.g. s12_ice18.",
+            "env_variable": "DB_DATABASE",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "nullable|string|max:100",
+            "field_type": "text"
+        },
+        {
+            "name": "Database username",
+            "description": "From this server's Databases tab.",
+            "env_variable": "DB_USERNAME",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "nullable|string|max:100",
+            "field_type": "text"
+        },
+        {
+            "name": "Database password",
+            "description": "From this server's Databases tab (click the eye icon). Paste it as-is.",
+            "env_variable": "DB_PASSWORD",
             "default_value": "",
             "user_viewable": false,
             "user_editable": false,
-            "rules": "required|string|starts_with:mysql://|max:500",
+            "rules": "nullable|string|max:255",
             "field_type": "text"
         },
         {
             "name": "App secret",
-            "description": "Random string of at least 32 characters (openssl rand -hex 32). Signs login sessions.",
+            "description": "Optional. Leave empty and ICE18 generates one on first start (saved in .ice18-secret). Signs login sessions.",
             "env_variable": "APP_SECRET",
             "default_value": "",
             "user_viewable": false,
             "user_editable": false,
-            "rules": "required|string|min:32|max:200",
+            "rules": "nullable|string|min:32|max:200",
             "field_type": "text"
         },
         {

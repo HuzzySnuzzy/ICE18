@@ -19,15 +19,16 @@ Coming next: plugin-aware database setup (detect SQL-capable plugins and wire th
 ## Run it inside Pterodactyl
 
 1. **Import the egg.** In Pterodactyl: *Admin → Nests →* pick or create a nest *→ Import Egg* and upload `egg/egg-ice18-panel.json`.
-2. **Create the server** with the *ICE18 Panel* egg. 512 MB RAM is plenty. Its port is the port ICE18 will listen on.
-3. **Create its database.** On the new server's *Databases* tab, create a database and build the URL:
-   `mysql://USERNAME:PASSWORD@HOST:3306/DATABASE`
-   If your database host only listens on `127.0.0.1` on the node, containers can't reach it. Use the Pterodactyl network gateway instead (default `172.18.0.1`) and make sure MySQL listens on that address.
-4. **Create two Pterodactyl API keys:**
+2. **Create the server** with the *ICE18 Panel* egg. 512 MB RAM and 2 GB disk are plenty. Its port is the port ICE18 will listen on. You can leave the database fields and *App secret* empty for now.
+3. **Create its database.** On the new server's *Databases* tab, create a database with *Connections from* set to `%`.
+4. **Fill in the database fields** (*Admin → Servers →* the server *→ Startup*): host, name, username and password, copied from the *Databases* tab. Paste the password as-is.
+   If the host shows as `127.0.0.1` or `localhost`, use `172.18.0.1` instead (the Pterodactyl network gateway): inside a server, `127.0.0.1` is the container itself. MySQL must also listen on that address (`bind-address = 0.0.0.0` or `172.18.0.1`).
+5. **Connect Pterodactyl.** Create two API keys and fill in *Pterodactyl URL* and both keys on the same Startup page:
    - *Admin → Application API*: a key with **read** access to Servers, Users, Nodes, Locations, Nests and Eggs. ICE18 only ever reads with it.
    - *Account → API Credentials* on a **root admin** account: used for power actions and consoles.
-5. **Fill in the server's startup variables** (*Admin → Servers →* the server *→ Startup*): database URL, app secret (`openssl rand -hex 32`), Pterodactyl URL and both keys.
 6. **Start the server**, open `http://NODE-IP:PORT` and create your admin account.
+
+If something's missing or wrong, the server's console says what to fix. ICE18 waits instead of crashing, so you can fix the setting and restart.
 
 ### Updates
 

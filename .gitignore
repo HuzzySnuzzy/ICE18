@@ -7,3 +7,4 @@ dist/
 .DS_Store
 coverage/
 .ice18-update-failed
+.ice18-secret
