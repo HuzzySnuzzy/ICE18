@@ -180,3 +180,71 @@ export interface PluginSetupResult {
   database: ServerDatabase;
   changed: string[];
 }
+
+// ---- Database browser ----
+
+export interface DbOverview {
+  /** True while the server is not offline: data can be viewed but not changed. */
+  locked: boolean;
+  state: string;
+  databases: ServerDatabase[];
+}
+
+export interface DbTable {
+  name: string;
+  type: 'table' | 'view';
+  /** Row count estimate from MySQL (null for views). */
+  rows: number | null;
+  engine: string | null;
+  comment: string;
+}
+
+export interface DbColumn {
+  name: string;
+  /** e.g. "varchar" */
+  dataType: string;
+  /** e.g. "varchar(36)" */
+  columnType: string;
+  nullable: boolean;
+  key: string;
+  default: string | null;
+  extra: string;
+  autoIncrement: boolean;
+  /** Binary data is shown as hex and can't be edited. */
+  binary: boolean;
+  editable: boolean;
+}
+
+export interface DbIndex {
+  name: string;
+  columns: string[];
+  unique: boolean;
+}
+
+export interface DbTableDesign {
+  name: string;
+  type: 'table' | 'view';
+  columns: DbColumn[];
+  primaryKey: string[];
+  indexes: DbIndex[];
+  /** Whether rows can be changed at all (needs a primary key). Separate from the server lock. */
+  editable: boolean;
+  readOnlyReason: string | null;
+}
+
+/** A cell: text, NULL, or binary data (with hex for short values). */
+export type DbCell = string | null | { binary: number; hex?: string };
+
+export interface DbRowsPage {
+  columns: string[];
+  rows: DbCell[][];
+  total: number | null;
+  totalIsEstimate: boolean;
+  offset: number;
+  limit: number;
+  sort: string | null;
+  dir: 'asc' | 'desc';
+}
+
+/** Primary key values that identify one row. */
+export type DbRowKey = Record<string, string>;

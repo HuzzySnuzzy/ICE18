@@ -26,6 +26,10 @@ When adding a feature that needs a new Pterodactyl endpoint: add that exact endp
 
 `apps/api/src/plugins/`: `recipes.ts` describes where known plugins keep their MySQL settings; `applyRecipe()` only changes keys that already exist and re-reads the result before anything is written. `plugins.service.ts` writes a `*.ice18-backup-YYYYMMDD-HHMMSS` copy before every change. The safety rules only allow writing `/plugins/<plugin>/<file>.yml` and those backups (`SAFE_CONFIG_WRITE`). To support a new plugin, add a recipe plus a test with a real copy of its config in `fixtures.ts`.
 
+## Database browser
+
+`apps/api/src/dbbrowser/`: connects to a server's database with that database's own Pterodactyl credentials (so it can only reach that one database). Rules: writes call `assertUnlocked()` (server must be `offline`, checked fresh via Pterodactyl every time); rows are only changed through their full primary key (`validateRowKey`), one row per statement with `LIMIT 1`; deletes run in a transaction and roll back if any row is missing; table and column names are checked against `information_schema` and escaped with `??`, values always go through `?`. No raw SQL, no DDL (DROP/TRUNCATE/ALTER). Keep it that way.
+
 ## Commands
 
 - `pnpm install`, `pnpm build`, `pnpm test`, `pnpm typecheck`

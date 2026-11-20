@@ -15,7 +15,9 @@ A game server panel that sits **on top of your existing Pterodactyl panel**. Not
 - Automatic updates from git, with rollback if a new version fails to install.
 - **Plugin databases** (server page → *Plugins & databases*): finds plugins that can use MySQL and connects them to a server database in one click. Supported: LuckPerms, CoreProtect, LiteBans, Plan, mcMMO and QuickShop. Other plugins with database settings are flagged, with copyable connection details to set them up by hand. ICE18 only changes the database settings in the plugin's `config.yml`, saves a backup next to it first, and refuses if the config doesn't look as expected.
 
-Coming next: an SSMS-style database browser, then server ordering with billing.
+- **Database tab** (server page → *Database*): an MS Access-style browser for the server's databases. Navigation pane with every database, its tables and views; datasheet and design views; sorting and paging. Data is read-only while the server is online. When it's offline you can edit cells, add records and delete records. Only tables with a primary key can be changed, every change targets one record by that key, and the server's state is re-checked before every write.
+
+Coming next: server ordering with billing.
 
 ## Run it inside Pterodactyl
 
