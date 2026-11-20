@@ -22,6 +22,7 @@ export function toPublicUser(user: UserRow): PublicUser {
     username: user.username,
     isAdmin: user.isAdmin,
     pteroUserId: user.pteroUserId ?? null,
+    credits: user.credits,
     createdAt: user.createdAt.toISOString(),
   };
 }

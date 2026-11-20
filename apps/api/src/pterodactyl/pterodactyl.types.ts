@@ -140,3 +140,50 @@ export interface PteroAllocation {
   notes: string | null;
   is_default: boolean;
 }
+
+export interface PteroNest {
+  id: number;
+  name: string;
+  description: string | null;
+}
+
+export interface PteroEggVariableDef {
+  name: string;
+  description: string;
+  env_variable: string;
+  default_value: string;
+  user_viewable: boolean;
+  user_editable: boolean;
+  rules: string;
+}
+
+export interface PteroEgg {
+  id: number;
+  nest: number;
+  name: string;
+  description: string | null;
+  docker_image: string;
+  docker_images?: Record<string, string>;
+  startup: string;
+  relationships?: { variables?: PteroList<PteroItem<PteroEggVariableDef>> };
+}
+
+export interface PteroLocation {
+  id: number;
+  short: string;
+  long: string | null;
+}
+
+export interface PteroCreateServer {
+  name: string;
+  description?: string;
+  user: number;
+  egg: number;
+  docker_image: string;
+  startup: string;
+  environment: Record<string, string>;
+  limits: { memory: number; swap: number; disk: number; io: number; cpu: number };
+  feature_limits: { databases: number; allocations: number; backups: number };
+  deploy: { locations: number[]; dedicated_ip: boolean; port_range: string[] };
+  start_on_completion: boolean;
+}

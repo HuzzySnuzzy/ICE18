@@ -63,9 +63,7 @@ describe('Pterodactyl safety rules', () => {
 
   it('refuses endpoints that are not on the allowlist', () => {
     for (const [method, path] of [
-      ['POST', '/api/application/servers'],
       ['PATCH', '/api/application/servers/12/details'],
-      ['POST', '/api/application/servers/12/suspend'],
       ['POST', '/api/client/servers/abc/files/write'],
       ['POST', '/api/client/servers/abc/files/rename'],
       ['POST', '/api/client/servers/abc/files/decompress'],
@@ -212,5 +210,39 @@ describe('SAFE_DB_DOWNLOAD (what the SQLite viewer may open)', () => {
     ['/plugins/LuckPerms/luckperms-h2-v2.mv.db.bak', false],
   ])('%s -> %s', (path, expected) => {
     expect(SAFE_DB_DOWNLOAD.test(path)).toBe(expected);
+  });
+});
+
+describe('prefabs and the store', () => {
+  const allowed = (method: string, path: string) => checkPterodactylRequest(method, path).allowed;
+
+  it('can read eggs, create users and servers, and suspend or unsuspend them', () => {
+    expect(allowed('GET', '/api/application/nests')).toBe(true);
+    expect(allowed('GET', '/api/application/nests/1/eggs')).toBe(true);
+    expect(allowed('GET', '/api/application/nests/1/eggs/3')).toBe(true);
+    expect(allowed('POST', '/api/application/users')).toBe(true);
+    expect(allowed('POST', '/api/application/servers')).toBe(true);
+    expect(allowed('POST', '/api/application/servers/12/suspend')).toBe(true);
+    expect(allowed('POST', '/api/application/servers/12/unsuspend')).toBe(true);
+  });
+
+  it('still never deletes, reinstalls or rebuilds servers, or edits/deletes users', () => {
+    for (const [method, path] of [
+      ['DELETE', '/api/application/servers/12'],
+      ['DELETE', '/api/application/servers/12/force'],
+      ['DELETE', '/api/application/users/5'],
+      ['POST', '/api/application/servers/12/reinstall'],
+      ['PATCH', '/api/application/servers/12/startup'],
+    ] as const) {
+      expect(checkPterodactylRequest(method, path, everything).allowed, `${method} ${path}`).toBe(false);
+    }
+    for (const [method, path] of [
+      ['PATCH', '/api/application/servers/12/details'],
+      ['PATCH', '/api/application/servers/12/build'],
+      ['PATCH', '/api/application/users/5'],
+      ['POST', '/api/application/nests'],
+    ] as const) {
+      expect(allowed(method, path), `${method} ${path}`).toBe(false);
+    }
   });
 });

@@ -7,6 +7,8 @@ export interface PublicUser {
   isAdmin: boolean;
   /** The Pterodactyl user this account is linked to, if any. */
   pteroUserId: number | null;
+  /** Store balance. */
+  credits: number;
   createdAt: string;
 }
 
@@ -394,4 +396,114 @@ export interface Allocation {
   port: number;
   notes: string | null;
   isDefault: boolean;
+}
+
+// ---- Prefabs, credits and the store ----
+
+export interface PrefabInput {
+  name: string;
+  description: string;
+  nestId: number;
+  eggId: number;
+  dockerImage: string;
+  startup: string;
+  environment: Record<string, string>;
+  /** MiB */
+  memory: number;
+  swap: number;
+  /** MiB */
+  disk: number;
+  io: number;
+  /** percent of one core */
+  cpu: number;
+  databases: number;
+  allocations: number;
+  backups: number;
+  locationIds: number[];
+  /** Monthly price in credits. */
+  price: number;
+  storeVisible: boolean;
+  sortOrder: number;
+}
+
+export interface Prefab extends PrefabInput {
+  id: number;
+}
+
+/** What customers see in the store. */
+export interface StoreItem {
+  id: number;
+  name: string;
+  description: string;
+  memory: number;
+  disk: number;
+  cpu: number;
+  databases: number;
+  allocations: number;
+  backups: number;
+  price: number;
+}
+
+export interface EggSummary {
+  id: number;
+  nestId: number;
+  nestName: string;
+  name: string;
+  description: string;
+  dockerImages: Record<string, string>;
+  startup: string;
+}
+
+export interface EggVariableDef {
+  name: string;
+  description: string;
+  envVariable: string;
+  defaultValue: string;
+  userEditable: boolean;
+  rules: string;
+}
+
+export interface EggDetails extends EggSummary {
+  variables: EggVariableDef[];
+}
+
+export interface LocationSummary {
+  id: number;
+  short: string;
+  long: string | null;
+}
+
+export interface CreditTransaction {
+  id: number;
+  amount: number;
+  balanceAfter: number;
+  reason: string;
+  createdAt: string;
+}
+
+export interface Wallet {
+  credits: number;
+  transactions: CreditTransaction[];
+}
+
+export type SubscriptionStatus = 'active' | 'suspended' | 'cancelled';
+
+export interface Subscription {
+  id: number;
+  name: string;
+  serverIdentifier: string;
+  prefabName: string | null;
+  price: number;
+  status: SubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  paidUntil: string;
+  createdAt: string;
+  /** Admin views only. */
+  username?: string;
+}
+
+export interface StoreOverview {
+  items: StoreItem[];
+  credits: number;
+  subscriptions: Subscription[];
 }

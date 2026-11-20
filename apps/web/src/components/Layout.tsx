@@ -36,6 +36,7 @@ export function Layout() {
         <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto px-2 py-2 md:flex-none md:flex-col md:px-3 md:py-0">
           <NavItem to="/servers">Servers</NavItem>
           <NavItem to="/databases">Databases</NavItem>
+          <NavItem to="/store">Store</NavItem>
           <NavItem to="/account">Account</NavItem>
           {user.isAdmin && <NavItem to="/admin">Admin</NavItem>}
         </nav>

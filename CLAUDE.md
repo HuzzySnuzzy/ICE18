@@ -30,6 +30,10 @@ ICE18 calls Pterodactyl with the admin client key, so Pterodactyl can't enforce 
 
 Files, users (subusers), startup variables/rename and network (ports) for one server, shown as tabs on the server page. Uploads are relayed through ICE18 to the signed Wings URL (`uploadToSignedUrl`), because browsers can't post to Wings cross-origin; downloads hand the browser the signed Wings URL. Everything that changes something is written to the audit log (startup variable values are not, only their names).
 
+## Store (`apps/api/src/store/`)
+
+Prefabs (server templates), credits and subscriptions. Credits only change through `CreditsService.adjust()` (atomic `UPDATE ... WHERE credits + amount >= 0`, plus a `credit_transactions` row). Billing rules are pure functions in `billing.ts` (tested); `StoreService.renewOne()` applies them every 10 minutes and after each admin credit change. Unpaid or ended subscriptions are **suspended**, never deleted. Orders charge first and refund if Pterodactyl fails. Never auto-link an existing Pterodactyl account by email (`ensurePterodactylUser`). `paid_until` is DATETIME on purpose (older MariaDB auto-updates the first TIMESTAMP column).
+
 ## Plugin databases
 
 `apps/api/src/plugins/`: `recipes.ts` describes where known plugins keep their MySQL settings; `applyRecipe()` only changes keys that already exist and re-reads the result before anything is written. `plugins.service.ts` writes a `*.ice18-backup-YYYYMMDD-HHMMSS` copy before every change. The safety rules only allow writing `/plugins/<plugin>/<file>.yml` and those backups (`SAFE_CONFIG_WRITE`). To support a new plugin, add a recipe plus a test with a real copy of its config in `fixtures.ts`.

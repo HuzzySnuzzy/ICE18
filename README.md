@@ -24,7 +24,15 @@ A game server panel that sits **on top of your existing Pterodactyl panel**. Not
   - **Startup**: view the startup command, edit the variables the egg allows, rename the server.
   - **Network**: see ports, copy addresses, add notes, add a port and choose the primary one.
 
-Coming next: server prefabs (admin templates for creating servers) and ordering servers from a store.
+- **Prefabs** (Admin page): server templates (egg, docker image, variables, resources, location, monthly price). Admins can create a server from any prefab for any user, free.
+- **Store** (left menu): customers order a server from the visible prefabs and pay in **credits**:
+  - Admins top up or adjust credits per user (Admin → Users → Credits), with a reason. Every change is in the user's credit history.
+  - The first month is paid when ordering; every 30 days the price is taken again. If the balance is too low the server is **suspended** (never deleted) and comes back automatically once the balance covers it.
+  - Customers can cancel; the server keeps running until the paid period ends, then it's suspended.
+  - If the customer has no Pterodactyl account yet, ICE18 creates one with their email and links it (Pterodactyl emails them to set a password). An existing Pterodactyl account with the same email is never linked automatically; they link it themselves on the Account page first.
+  - If Pterodactyl can't create the server, the credits are refunded automatically.
+
+Deleting servers is still never done by ICE18; remove servers you no longer want in Pterodactyl.
 
 ## Run it inside Pterodactyl
 

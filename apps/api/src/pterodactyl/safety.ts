@@ -90,7 +90,7 @@ export const FORBIDDEN_RULES: readonly ForbiddenRule[] = [
 
 /** Everything ICE18 is currently allowed to do. Anything else is refused. */
 export const ALLOWED_RULES: readonly AllowedRule[] = [
-  // Application API (admin key): read-only.
+  // Application API (admin key): reading.
   route('GET', '/api/application/servers'),
   route('GET', '/api/application/servers/:id'),
   route('GET', '/api/application/users'),
@@ -98,6 +98,16 @@ export const ALLOWED_RULES: readonly AllowedRule[] = [
   route('GET', '/api/application/nodes'),
   route('GET', '/api/application/nodes/:id'),
   route('GET', '/api/application/locations'),
+  route('GET', '/api/application/nests'),
+  route('GET', '/api/application/nests/:id/eggs'),
+  route('GET', '/api/application/nests/:id/eggs/:egg'),
+
+  // Prefabs and the store: create Pterodactyl users and servers, suspend unpaid servers and
+  // unsuspend them once paid. Servers are never deleted or reinstalled by ICE18.
+  route('POST', '/api/application/users'),
+  route('POST', '/api/application/servers'),
+  route('POST', '/api/application/servers/:id/suspend'),
+  route('POST', '/api/application/servers/:id/unsuspend'),
 
   // Client API.
   route('GET', '/api/client'),

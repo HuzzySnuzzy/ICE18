@@ -4,6 +4,7 @@ import { Alert, Badge, Button, Card, Input, PageHeader, Spinner } from '../compo
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { formatDate } from '../lib/format';
+import { CreditsDialog, PrefabsCard, SubscriptionsCard } from '../components/AdminStore';
 
 function LinkEditor({ user, onDone }: { user: PublicUser; onDone: (updated: PublicUser | null) => void }) {
   const [email, setEmail] = useState(user.email);
@@ -66,6 +67,7 @@ function LinkEditor({ user, onDone }: { user: PublicUser; onDone: (updated: Publ
 function UsersCard() {
   const { user: me } = useAuth();
   const [users, setUsers] = useState<PublicUser[] | null>(null);
+  const [creditsFor, setCreditsFor] = useState<PublicUser | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,6 +106,7 @@ function UsersCard() {
                 <th className="py-2 pr-4 font-medium">User</th>
                 <th className="py-2 pr-4 font-medium">Role</th>
                 <th className="py-2 pr-4 font-medium">Pterodactyl</th>
+                <th className="py-2 pr-4 font-medium">Credits</th>
                 <th className="py-2 font-medium" />
               </tr>
             </thead>
@@ -133,6 +136,11 @@ function UsersCard() {
                       <span className="text-ink-400">Not linked</span>
                     )}
                   </td>
+                  <td className="py-3 pr-4">
+                    <button type="button" onClick={() => setCreditsFor(user)} className="text-ink-100 tabular-nums hover:text-ice-300" title="Adjust credits">
+                      {user.credits.toLocaleString()}
+                    </button>
+                  </td>
                   <td className="py-3 text-right whitespace-nowrap">
                     <div className="-my-1.5 flex justify-end gap-1">
                       <Button variant="ghost" onClick={() => setEditing(user.id)}>
@@ -146,6 +154,9 @@ function UsersCard() {
                           Unlink
                         </Button>
                       )}
+                      <Button variant="ghost" onClick={() => setCreditsFor(user)}>
+                        Credits
+                      </Button>
                       {user.id !== me?.id && (
                         <Button
                           variant="ghost"
@@ -161,6 +172,13 @@ function UsersCard() {
             </tbody>
           </table>
         </div>
+      )}
+      {creditsFor && (
+        <CreditsDialog
+          user={creditsFor}
+          onClose={() => setCreditsFor(null)}
+          onChanged={(balance) => replace({ ...creditsFor, credits: balance })}
+        />
       )}
     </Card>
   );
@@ -337,6 +355,8 @@ export function AdminPage() {
       <PageHeader title="Admin" subtitle="Manage ICE18 accounts and see what's been happening." />
       <div className="grid gap-5">
         <UsersCard />
+        <PrefabsCard />
+        <SubscriptionsCard />
         <UpdatesCard />
         <AuditCard />
       </div>

@@ -3,6 +3,10 @@ import type { PowerSignal } from '@ice18/shared';
 import { CONFIG, isPterodactylConfigured, type AppConfig } from '../config/config';
 import { PterodactylHttp, downloadSignedFile } from './pterodactyl.http';
 import type {
+  PteroCreateServer,
+  PteroEgg,
+  PteroLocation,
+  PteroNest,
   PteroAllocation,
   PteroEggVariable,
   PteroStartupMeta,
@@ -299,5 +303,49 @@ export class PterodactylService {
   async setPrimaryAllocation(identifier: string, id: number): Promise<PteroAllocation> {
     const result = await this.cli().request<PteroItem<PteroAllocation>>('POST', `${this.server(identifier)}/network/allocations/${id}/primary`);
     return result.attributes;
+  }
+
+  // ---- Prefabs & store (Application API) ----
+
+  async nests(): Promise<PteroNest[]> {
+    const result = await this.app().request<PteroList<PteroItem<PteroNest>>>('GET', '/api/application/nests', { query: { per_page: 100 } });
+    return result.data.map((item) => item.attributes);
+  }
+
+  async eggs(nestId: number): Promise<PteroEgg[]> {
+    const result = await this.app().request<PteroList<PteroItem<PteroEgg>>>('GET', `/api/application/nests/${nestId}/eggs`, {
+      query: { per_page: 100 },
+    });
+    return result.data.map((item) => item.attributes);
+  }
+
+  async egg(nestId: number, eggId: number): Promise<PteroEgg> {
+    const result = await this.app().request<PteroItem<PteroEgg>>('GET', `/api/application/nests/${nestId}/eggs/${eggId}`, {
+      query: { include: 'variables' },
+    });
+    return result.attributes;
+  }
+
+  async locations(): Promise<PteroLocation[]> {
+    const result = await this.app().request<PteroList<PteroItem<PteroLocation>>>('GET', '/api/application/locations', { query: { per_page: 100 } });
+    return result.data.map((item) => item.attributes);
+  }
+
+  async createUser(input: { email: string; username: string; first_name: string; last_name: string }): Promise<PteroApplicationUser> {
+    const result = await this.app().request<PteroItem<PteroApplicationUser>>('POST', '/api/application/users', { body: input });
+    return result.attributes;
+  }
+
+  async createServer(input: PteroCreateServer): Promise<PteroApplicationServer> {
+    const result = await this.app().request<PteroItem<PteroApplicationServer>>('POST', '/api/application/servers', { body: input });
+    return result.attributes;
+  }
+
+  async suspendServer(serverId: number): Promise<void> {
+    await this.app().request('POST', `/api/application/servers/${serverId}/suspend`);
+  }
+
+  async unsuspendServer(serverId: number): Promise<void> {
+    await this.app().request('POST', `/api/application/servers/${serverId}/unsuspend`);
   }
 }
