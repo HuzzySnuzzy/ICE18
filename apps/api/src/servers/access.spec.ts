@@ -20,6 +20,7 @@ describe('computePermissions', () => {
     expect(computePermissions({ isAdmin: false, pteroUserId: 20 }, server)).toEqual([
       'websocket.connect',
       'control.console',
+      'file.read',
     ]);
   });
 

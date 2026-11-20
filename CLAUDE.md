@@ -22,6 +22,10 @@ When adding a feature that needs a new Pterodactyl endpoint: add that exact endp
 - `egg/`: Pterodactyl egg and its install script.
 - `scripts/start.sh`: the egg's startup command. Runs `scripts/update.sh` before starting the panel and restarts it when it exits with code 75 (an update was requested by `apps/api/src/updates/update.service.ts`). `update.sh` rolls back to the previous commit if install/build fails. Both wrap their body in `main()` so bash has read the whole file before `git reset` replaces it; keep it that way.
 
+## Plugin databases
+
+`apps/api/src/plugins/`: `recipes.ts` describes where known plugins keep their MySQL settings; `applyRecipe()` only changes keys that already exist and re-reads the result before anything is written. `plugins.service.ts` writes a `*.ice18-backup-YYYYMMDD-HHMMSS` copy before every change. The safety rules only allow writing `/plugins/<plugin>/<file>.yml` and those backups (`SAFE_CONFIG_WRITE`). To support a new plugin, add a recipe plus a test with a real copy of its config in `fixtures.ts`.
+
 ## Commands
 
 - `pnpm install`, `pnpm build`, `pnpm test`, `pnpm typecheck`

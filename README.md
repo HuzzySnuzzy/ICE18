@@ -13,8 +13,9 @@ A game server panel that sits **on top of your existing Pterodactyl panel**. Not
 - Users link their Pterodactyl account by pasting a client API key once (used to prove ownership, never stored). Admins can also link accounts.
 - Activity log of logins, power actions, console commands and account changes.
 - Automatic updates from git, with rollback if a new version fails to install.
+- **Plugin databases** (server page → *Plugins & databases*): finds plugins that can use MySQL and connects them to a server database in one click. Supported: LuckPerms, CoreProtect, LiteBans, Plan, mcMMO and QuickShop. Other plugins with database settings are flagged, with copyable connection details to set them up by hand. ICE18 only changes the database settings in the plugin's `config.yml`, saves a backup next to it first, and refuses if the config doesn't look as expected.
 
-Coming next: plugin-aware database setup (detect SQL-capable plugins and wire them to a database in one click), an SSMS-style database browser, and server ordering with billing.
+Coming next: an SSMS-style database browser, then server ordering with billing.
 
 ## Run it inside Pterodactyl
 

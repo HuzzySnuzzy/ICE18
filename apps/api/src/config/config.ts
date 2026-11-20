@@ -29,6 +29,12 @@ const schema = z.object({
   DB_PASSWORD: z.string().optional(),
   DATABASE_URL: z.string().regex(/^mysql:\/\//, 'DATABASE_URL must start with mysql://').optional(),
 
+  /**
+   * Plugins run inside Docker, where 127.0.0.1 is the container itself. When a Pterodactyl
+   * database host is 127.0.0.1/localhost, plugin configs get this address instead.
+   */
+  PLUGIN_DB_LOOPBACK_HOST: z.string().default('172.18.0.1'),
+
   /** Optional: generated and saved to .ice18-secret when not set. */
   APP_SECRET: z.string().min(32, 'APP_SECRET must be at least 32 characters long').optional(),
   PUBLIC_URL: z.url().optional(),

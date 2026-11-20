@@ -7,7 +7,8 @@
  *
  *   1. the path is a plain, well-formed API path (no "..", no encoded characters), and
  *   2. it does NOT match any FORBIDDEN rule (these win over everything), and
- *   3. it DOES match an ALLOWED rule (anything not listed is refused by default).
+ *   3. it DOES match an ALLOWED rule (anything not listed is refused by default), and
+ *   4. for file writes, the target file is a plugin config file (see SAFE_CONFIG_WRITE).
  *
  * To support a new Pterodactyl feature, add the exact endpoint to ALLOWED_RULES.
  * Never remove or weaken a FORBIDDEN rule: they are the guarantee that ICE18 cannot
@@ -74,6 +75,11 @@ export const FORBIDDEN_RULES: readonly ForbiddenRule[] = [
     pattern: /^\/api\/application\/servers\/[^/]+\/startup$/,
     reason: "Changing a server's egg or startup settings can trigger a reinstall.",
   },
+  {
+    method: 'POST',
+    pattern: /^\/api\/client\/servers\/[^/]+\/databases\/[^/]+\/rotate-password$/,
+    reason: 'Resetting a database password breaks every plugin that uses that database.',
+  },
 ];
 
 /** Everything ICE18 is currently allowed to do. Anything else is refused. */
@@ -94,7 +100,29 @@ export const ALLOWED_RULES: readonly AllowedRule[] = [
   route('GET', '/api/client/servers/:id/resources'),
   route('GET', '/api/client/servers/:id/websocket'),
   route('POST', '/api/client/servers/:id/power'),
+
+  // Plugin database setup: read files, write plugin config files (see SAFE_CONFIG_WRITE),
+  // list and create databases. Never delete, rename, move or decompress anything.
+  route('GET', '/api/client/servers/:id/files/list'),
+  route('GET', '/api/client/servers/:id/files/contents'),
+  route('POST', '/api/client/servers/:id/files/write'),
+  route('GET', '/api/client/servers/:id/databases'),
+  route('POST', '/api/client/servers/:id/databases'),
 ];
+
+const FILE_WRITE_PATH = /^\/api\/client\/servers\/[^/]+\/files\/write$/;
+const FILE_READ_PATH = /^\/api\/client\/servers\/[^/]+\/files\/(list|contents)$/;
+
+/**
+ * The only files ICE18 may write: YAML configs inside a plugin's folder, or ICE18's
+ * backup copies of them (written before every change). Nothing else on a server.
+ */
+export const SAFE_CONFIG_WRITE =
+  /^\/plugins\/[A-Za-z0-9 _.+-]{1,64}\/[A-Za-z0-9 _.+-]{1,64}\.ya?ml(\.ice18-backup-\d{8}-\d{6})?$/;
+
+function safeFilePath(file: unknown): file is string {
+  return typeof file === 'string' && file.startsWith('/') && !file.split('/').some((part) => part === '..' || part === '.');
+}
 
 /** Plain API paths only: no query string, no "..", no "%", no double slashes. */
 const SAFE_PATH = /^\/api\/(application|client)(\/[A-Za-z0-9_-]+)*$/;
@@ -105,6 +133,7 @@ export function checkPterodactylRequest(
   method: string,
   path: string,
   allowed: readonly AllowedRule[] = ALLOWED_RULES,
+  query: Readonly<Record<string, string | number | undefined>> = {},
 ): SafetyVerdict {
   const upperMethod = method.toUpperCase();
 
@@ -115,6 +144,22 @@ export function checkPterodactylRequest(
   for (const rule of FORBIDDEN_RULES) {
     if (rule.method === upperMethod && rule.pattern.test(path)) {
       return { allowed: false, reason: `${rule.reason} (${upperMethod} ${path})` };
+    }
+  }
+
+  if (FILE_WRITE_PATH.test(path)) {
+    const file = query.file;
+    if (!safeFilePath(file) || !SAFE_CONFIG_WRITE.test(file)) {
+      return {
+        allowed: false,
+        reason: `ICE18 may only write plugin config files (/plugins/<plugin>/<name>.yml), not ${JSON.stringify(file)}.`,
+      };
+    }
+  }
+  if (FILE_READ_PATH.test(path)) {
+    const target = query.file ?? query.directory;
+    if (!safeFilePath(target)) {
+      return { allowed: false, reason: `Refused unsafe file path ${JSON.stringify(target)}.` };
     }
   }
 
@@ -135,8 +180,12 @@ export class BlockedPterodactylRequestError extends Error {
   }
 }
 
-export function assertPterodactylRequestAllowed(method: string, path: string): void {
-  const verdict = checkPterodactylRequest(method, path);
+export function assertPterodactylRequestAllowed(
+  method: string,
+  path: string,
+  query: Readonly<Record<string, string | number | undefined>> = {},
+): void {
+  const verdict = checkPterodactylRequest(method, path, ALLOWED_RULES, query);
   if (!verdict.allowed) {
     throw new BlockedPterodactylRequestError(verdict.reason);
   }

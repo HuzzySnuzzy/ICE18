@@ -83,3 +83,25 @@ export interface PteroResources {
 export interface PteroWebsocketCredentials {
   data: { token: string; socket: string };
 }
+
+export interface PteroFileObject {
+  name: string;
+  mode: string;
+  size: number;
+  is_file: boolean;
+  is_symlink: boolean;
+  mimetype: string;
+  modified_at: string;
+}
+
+export interface PteroServerDatabase {
+  id: string;
+  host: { address: string; port: number };
+  name: string;
+  username: string;
+  connections_from: string;
+  max_connections: number;
+  relationships?: {
+    password?: PteroItem<{ password: string }>;
+  };
+}

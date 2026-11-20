@@ -27,6 +27,11 @@ export const SERVER_PERMISSIONS = [
   'control.start',
   'control.stop',
   'control.restart',
+  'file.read',
+  'file.update',
+  'database.read',
+  'database.create',
+  'database.view_password',
 ] as const;
 export type ServerPermission = (typeof SERVER_PERMISSIONS)[number];
 
@@ -107,4 +112,71 @@ export interface UpdateStatus {
   checking: boolean;
   lastCheckedAt: string | null;
   lastError: string | null;
+}
+
+/** A database that belongs to a Pterodactyl server (its "Databases" tab). */
+export interface ServerDatabase {
+  id: string;
+  name: string;
+  username: string;
+  /** Address as configured on the Pterodactyl database host. */
+  host: string;
+  port: number;
+  /** Address plugins inside the server's container should use (127.0.0.1 is swapped for the Docker gateway). */
+  pluginHost: string;
+  connectionsFrom: string;
+}
+
+export interface ServerDatabaseCredentials extends ServerDatabase {
+  password: string;
+}
+
+/**
+ * supported: ICE18 knows this plugin and can set it up in one click.
+ * possible:  its config has database settings, but ICE18 doesn't know its layout; set it up by hand.
+ * none:      no sign of database support.
+ */
+export type PluginSqlSupport = 'supported' | 'possible' | 'none';
+
+export interface PluginInfo {
+  /** Display name: the plugin's folder name, or its jar name if it has never run. */
+  name: string;
+  folder: string | null;
+  jar: string | null;
+  support: PluginSqlSupport;
+  /** For supported plugins. */
+  recipeId?: string;
+  /** "mysql": already uses a MySQL database; "local": file storage (H2/SQLite); "not-generated": no config yet. */
+  storage?: 'mysql' | 'local' | 'not-generated';
+  /** Human summary, e.g. "MySQL: s12_luckperms on 172.18.0.1:3306". */
+  summary: string;
+  configFile?: string;
+  /** For possible plugins: where the database settings are, e.g. "database.mysql". */
+  settingsPath?: string;
+  /** Name of the server database this plugin is pointed at, when it matches one. */
+  database?: string | null;
+}
+
+export interface PluginScan {
+  hasPluginsFolder: boolean;
+  plugins: PluginInfo[];
+  databases: ServerDatabase[];
+  scannedAt: string;
+}
+
+export interface PluginSetupRequest {
+  /** Use an existing server database... */
+  databaseId?: string;
+  /** ...or create one with this name (Pterodactyl prefixes it, e.g. s12_luckperms). */
+  newDatabaseName?: string;
+  /** Override the address written into the plugin config. */
+  host?: string;
+}
+
+export interface PluginSetupResult {
+  plugin: string;
+  configFile: string;
+  backupFile: string;
+  database: ServerDatabase;
+  changed: string[];
 }

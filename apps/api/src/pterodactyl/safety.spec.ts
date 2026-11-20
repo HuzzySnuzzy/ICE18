@@ -94,3 +94,55 @@ describe('Pterodactyl safety rules', () => {
     expect(ALLOWED_RULES.filter((rule) => rule.method === 'DELETE')).toEqual([]);
   });
 });
+
+describe('file and database rules', () => {
+  const write = (file: unknown) =>
+    checkPterodactylRequest('POST', '/api/client/servers/abcd1234/files/write', ALLOWED_RULES, {
+      file: file as string,
+    }).allowed;
+
+  it('allows writing plugin config files and their ICE18 backups', () => {
+    expect(write('/plugins/LuckPerms/config.yml')).toBe(true);
+    expect(write('/plugins/Plan/config.yaml')).toBe(true);
+    expect(write('/plugins/LuckPerms/config.yml.ice18-backup-20261120-213000')).toBe(true);
+  });
+
+  it.each([
+    ['no file at all', undefined],
+    ['server.properties', '/server.properties'],
+    ['a plugin jar', '/plugins/LuckPerms.jar'],
+    ['a world file', '/world/level.dat'],
+    ['a startup script', '/start.sh'],
+    ['a non-YAML plugin file', '/plugins/LuckPerms/luckperms-h2.mv.db'],
+    ['path traversal', '/plugins/LuckPerms/../../server.yml'],
+    ['dot segment', '/plugins/./config.yml'],
+    ['nested deeper', '/plugins/LuckPerms/sub/config.yml'],
+    ['relative path', 'plugins/LuckPerms/config.yml'],
+    ['a fake backup suffix', '/plugins/X/config.yml.ice18-backup-anything'],
+  ])('refuses writing %s', (_label, file) => {
+    expect(write(file)).toBe(false);
+  });
+
+  it('refuses unsafe paths when reading', () => {
+    const read = (query: Record<string, string>) =>
+      checkPterodactylRequest('GET', '/api/client/servers/abcd1234/files/contents', ALLOWED_RULES, query).allowed;
+    expect(read({ file: '/plugins/LuckPerms/config.yml' })).toBe(true);
+    expect(read({ file: '/plugins/../../etc/passwd' })).toBe(false);
+    expect(read({})).toBe(false);
+  });
+
+  it('allows listing and creating databases but never deleting them or resetting passwords', () => {
+    expect(checkPterodactylRequest('GET', '/api/client/servers/abcd1234/databases').allowed).toBe(true);
+    expect(checkPterodactylRequest('POST', '/api/client/servers/abcd1234/databases').allowed).toBe(true);
+    expect(checkPterodactylRequest('DELETE', '/api/client/servers/abcd1234/databases/xyz', everything).allowed).toBe(false);
+    expect(
+      checkPterodactylRequest('POST', '/api/client/servers/abcd1234/databases/xyz/rotate-password', everything).allowed,
+    ).toBe(false);
+  });
+
+  it('still refuses every other file operation', () => {
+    for (const op of ['delete', 'rename', 'copy', 'compress', 'decompress', 'chmod', 'pull', 'create-folder']) {
+      expect(checkPterodactylRequest('POST', `/api/client/servers/abcd1234/files/${op}`).allowed, op).toBe(false);
+    }
+  });
+});

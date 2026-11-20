@@ -3,6 +3,8 @@ import type { PowerSignal } from '@ice18/shared';
 import { CONFIG, isPterodactylConfigured, type AppConfig } from '../config/config';
 import { PterodactylHttp } from './pterodactyl.http';
 import type {
+  PteroFileObject,
+  PteroServerDatabase,
   PteroApplicationServer,
   PteroApplicationUser,
   PteroClientAccount,
@@ -117,5 +119,47 @@ export class PterodactylService {
       `/api/client/servers/${assertIdentifier(identifier)}/websocket`,
     );
     return result.data;
+  }
+
+  async listFiles(identifier: string, directory: string): Promise<PteroFileObject[]> {
+    const result = await this.cli().request<PteroList<PteroItem<PteroFileObject>>>(
+      'GET',
+      `/api/client/servers/${assertIdentifier(identifier)}/files/list`,
+      { query: { directory } },
+    );
+    return result.data.map((item) => item.attributes);
+  }
+
+  readFile(identifier: string, file: string): Promise<string> {
+    return this.cli().request<string>('GET', `/api/client/servers/${assertIdentifier(identifier)}/files/contents`, {
+      query: { file },
+      responseType: 'text',
+    });
+  }
+
+  /** Only plugin config files can be written; the safety rules refuse anything else. */
+  async writeFile(identifier: string, file: string, contents: string): Promise<void> {
+    await this.cli().request('POST', `/api/client/servers/${assertIdentifier(identifier)}/files/write`, {
+      query: { file },
+      textBody: contents,
+    });
+  }
+
+  async listDatabases(identifier: string, includePasswords = false): Promise<PteroServerDatabase[]> {
+    const result = await this.cli().request<PteroList<PteroItem<PteroServerDatabase>>>(
+      'GET',
+      `/api/client/servers/${assertIdentifier(identifier)}/databases`,
+      { query: { include: includePasswords ? 'password' : undefined } },
+    );
+    return result.data.map((item) => item.attributes);
+  }
+
+  async createDatabase(identifier: string, name: string): Promise<PteroServerDatabase> {
+    const result = await this.cli().request<PteroItem<PteroServerDatabase>>(
+      'POST',
+      `/api/client/servers/${assertIdentifier(identifier)}/databases`,
+      { body: { database: name, remote: '%' } },
+    );
+    return result.attributes;
   }
 }

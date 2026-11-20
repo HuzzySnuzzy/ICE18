@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import type { PowerSignal, ServerPermission, ServerResources, ServerSummary } from '@ice18/shared';
+import { PluginsPanel } from '../components/PluginsPanel';
 import { Terminal, type TerminalHandle } from '../components/Terminal';
 import { Alert, Badge, Button, Spinner, StateBadge, cx } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
@@ -19,6 +20,8 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 export function ServerPage() {
   const { identifier = '' } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') === 'plugins' ? 'plugins' : 'console';
   const [server, setServer] = useState<ServerSummary | null>(null);
   const [initial, setInitial] = useState<ServerResources | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -149,55 +152,82 @@ export function ServerPage() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
-        <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-ink-700 bg-ink-950">
-          <div className="flex items-center justify-between border-b border-ink-800 px-4 py-2.5 text-xs">
-            <span className="font-medium text-ink-300">Console</span>
-            <span
-              className={cx(
-                'flex items-center gap-1.5',
-                live.status === 'connected' ? 'text-emerald-300' : live.status === 'closed' ? 'text-red-300' : 'text-amber-300',
-              )}
-            >
-              <span className="size-1.5 rounded-full bg-current" />
-              {live.status === 'connected' ? 'Live' : live.status === 'closed' ? 'Disconnected' : 'Connecting…'}
-            </span>
-          </div>
-          {live.error && (
-            <div className="border-b border-ink-800 px-4 py-2 text-sm text-red-300">{live.error}</div>
-          )}
-          <div className="h-[460px] min-h-0">
-            <Terminal ref={terminal} />
-          </div>
-          <form onSubmit={submitCommand} className="flex border-t border-ink-800">
-            <span className="flex items-center pl-4 font-mono text-sm text-ice-400">›</span>
-            <input
-              value={command}
-              onChange={(event) => setCommand(event.target.value)}
-              onKeyDown={browseHistory}
-              disabled={!can('control.console') || live.status !== 'connected'}
-              placeholder={
-                !can('control.console')
-                  ? "You don't have permission to send commands"
-                  : live.status === 'connected'
-                    ? 'Type a command and press Enter'
-                    : 'Waiting for the console…'
-              }
-              maxLength={2000}
-              className="min-w-0 flex-1 bg-transparent px-3 py-3 font-mono text-sm text-ink-100 placeholder:text-ink-500 focus:outline-none disabled:cursor-not-allowed"
-              aria-label="Console command"
-            />
-          </form>
-        </section>
+      <div className="mb-5 flex gap-1 border-b border-ink-700" role="tablist">
+        {(
+          [
+            ['console', 'Console'],
+            ['plugins', 'Plugins & databases'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setSearchParams(key === 'console' ? {} : { tab: key }, { replace: true })}
+            className={cx(
+              '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+              tab === key ? 'border-ice-400 text-ink-100' : 'border-transparent text-ink-400 hover:text-ink-200',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-        <div className="grid grid-cols-2 gap-3 self-start sm:grid-cols-3 lg:grid-cols-1">
-          <Stat label="CPU" value={`${cpu.toFixed(1)}%`} sub={server.limits.cpu ? `of ${server.limits.cpu}%` : 'no limit'} />
-          <Stat label="Memory" value={formatBytes(memory)} sub={memoryLimit ? `of ${formatBytes(memoryLimit)}` : 'no limit'} />
-          <Stat label="Disk" value={formatBytes(disk)} sub={`of ${formatLimitMiB(server.limits.disk)}`} />
-          <Stat label="Network" value={`↓ ${formatBytes(rx)}`} sub={`↑ ${formatBytes(tx)}`} />
-          <Stat label="Uptime" value={offline ? '—' : formatUptime(uptime)} />
+      {/* Hidden, not unmounted, so the console stays connected while on another tab. */}
+      <div hidden={tab !== 'console'}>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-ink-700 bg-ink-950">
+            <div className="flex items-center justify-between border-b border-ink-800 px-4 py-2.5 text-xs">
+              <span className="font-medium text-ink-300">Console</span>
+              <span
+                className={cx(
+                  'flex items-center gap-1.5',
+                  live.status === 'connected' ? 'text-emerald-300' : live.status === 'closed' ? 'text-red-300' : 'text-amber-300',
+                )}
+              >
+                <span className="size-1.5 rounded-full bg-current" />
+                {live.status === 'connected' ? 'Live' : live.status === 'closed' ? 'Disconnected' : 'Connecting…'}
+              </span>
+            </div>
+            {live.error && (
+              <div className="border-b border-ink-800 px-4 py-2 text-sm text-red-300">{live.error}</div>
+            )}
+            <div className="h-[460px] min-h-0">
+              <Terminal ref={terminal} />
+            </div>
+            <form onSubmit={submitCommand} className="flex border-t border-ink-800">
+              <span className="flex items-center pl-4 font-mono text-sm text-ice-400">›</span>
+              <input
+                value={command}
+                onChange={(event) => setCommand(event.target.value)}
+                onKeyDown={browseHistory}
+                disabled={!can('control.console') || live.status !== 'connected'}
+                placeholder={
+                  !can('control.console')
+                    ? "You don't have permission to send commands"
+                    : live.status === 'connected'
+                      ? 'Type a command and press Enter'
+                      : 'Waiting for the console…'
+                }
+                maxLength={2000}
+                className="min-w-0 flex-1 bg-transparent px-3 py-3 font-mono text-sm text-ink-100 placeholder:text-ink-500 focus:outline-none disabled:cursor-not-allowed"
+                aria-label="Console command"
+              />
+            </form>
+          </section>
+
+          <div className="grid grid-cols-2 gap-3 self-start sm:grid-cols-3 lg:grid-cols-1">
+            <Stat label="CPU" value={`${cpu.toFixed(1)}%`} sub={server.limits.cpu ? `of ${server.limits.cpu}%` : 'no limit'} />
+            <Stat label="Memory" value={formatBytes(memory)} sub={memoryLimit ? `of ${formatBytes(memoryLimit)}` : 'no limit'} />
+            <Stat label="Disk" value={formatBytes(disk)} sub={`of ${formatLimitMiB(server.limits.disk)}`} />
+            <Stat label="Network" value={`↓ ${formatBytes(rx)}`} sub={`↑ ${formatBytes(tx)}`} />
+            <Stat label="Uptime" value={offline ? '—' : formatUptime(uptime)} />
+          </div>
         </div>
       </div>
+      {tab === 'plugins' && <PluginsPanel server={server} />}
     </>
   );
 }

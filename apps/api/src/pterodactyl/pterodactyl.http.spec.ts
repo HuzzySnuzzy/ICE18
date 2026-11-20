@@ -57,4 +57,36 @@ describe('PterodactylHttp', () => {
       message: 'Pterodactyl responded 403: This action is unauthorized.',
     });
   });
+
+  it('checks the target file of a write before sending it', async () => {
+    const fetchImpl = fakeFetch();
+    const http = new PterodactylHttp('https://panel.example.com', 'ptlc_test', fetchImpl);
+
+    await expect(
+      http.request('POST', '/api/client/servers/abcd1234/files/write', { query: { file: '/server.properties' }, textBody: 'x' }),
+    ).rejects.toBeInstanceOf(BlockedPterodactylRequestError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    await http.request('POST', '/api/client/servers/abcd1234/files/write', {
+      query: { file: '/plugins/LuckPerms/config.yml' },
+      textBody: 'storage-method: mysql\n',
+    });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url.toString()).toBe(
+      'https://panel.example.com/api/client/servers/abcd1234/files/write?file=%2Fplugins%2FLuckPerms%2Fconfig.yml',
+    );
+    expect(init.body).toBe('storage-method: mysql\n');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('text/plain');
+  });
+
+  it('returns file contents as text', async () => {
+    const fetchImpl = vi.fn(async () => new Response('a: 1\n', { status: 200 })) as unknown as typeof fetch;
+    const http = new PterodactylHttp('https://panel.example.com', 'ptlc_test', fetchImpl);
+    await expect(
+      http.request('GET', '/api/client/servers/abcd1234/files/contents', {
+        query: { file: '/plugins/X/config.yml' },
+        responseType: 'text',
+      }),
+    ).resolves.toBe('a: 1\n');
+  });
 });

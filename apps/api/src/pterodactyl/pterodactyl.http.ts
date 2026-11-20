@@ -12,7 +12,12 @@ export class PterodactylError extends Error {
 
 export interface RequestOptions {
   query?: Record<string, string | number | undefined>;
+  /** Sent as JSON. */
   body?: unknown;
+  /** Sent as plain text (file contents). */
+  textBody?: string;
+  /** Return the response body as text instead of parsing JSON (file contents). */
+  responseType?: 'json' | 'text';
 }
 
 /**
@@ -35,7 +40,7 @@ export class PterodactylHttp {
   }
 
   async request<T>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<T> {
-    assertPterodactylRequestAllowed(method, path);
+    assertPterodactylRequestAllowed(method, path, options.query);
 
     const expectedPath = `${this.basePath}${path}`;
     const url = new URL(expectedPath, this.origin);
@@ -55,8 +60,9 @@ export class PterodactylHttp {
           Authorization: `Bearer ${this.apiKey}`,
           Accept: 'application/json',
           ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(options.textBody !== undefined ? { 'Content-Type': 'text/plain' } : {}),
         },
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        body: options.textBody ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined),
         redirect: 'error',
         signal: AbortSignal.timeout(15_000),
       });
@@ -71,6 +77,7 @@ export class PterodactylHttp {
     if (response.status === 204) return undefined as T;
 
     const text = await response.text();
+    if (response.ok && options.responseType === 'text') return text as T;
     let payload: unknown;
     try {
       payload = text ? JSON.parse(text) : undefined;
