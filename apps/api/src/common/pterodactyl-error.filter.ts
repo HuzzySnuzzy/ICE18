@@ -16,8 +16,11 @@ export class PterodactylErrorFilter implements ExceptionFilter {
       response.status(500).json({ statusCode: 500, message: error.message });
       return;
     }
-    this.logger.warn(error.message);
+    this.logger.warn(`${error.request ?? 'Pterodactyl request'} failed: ${error.message}`);
     const status = error.status === 404 ? 404 : 502;
-    response.status(status).json({ statusCode: status, message: error.message });
+    const message = error.fromWings
+      ? `${error.message} — This came from the server's node (Wings), not ICE18. Check the node is online in Pterodactyl (Admin → Nodes); the Wings log on that node has the details.`
+      : error.message;
+    response.status(status).json({ statusCode: status, message });
   }
 }

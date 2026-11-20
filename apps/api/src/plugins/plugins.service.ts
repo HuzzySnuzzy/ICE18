@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import type {
   PluginInfo,
   PluginScan,
@@ -103,16 +103,58 @@ export class PluginsService {
     }
   }
 
+  /**
+   * For scans: lists the plugin folder first and only reads the file if it's there (some
+   * Wings versions answer a missing file with a 500), and never throws: one unreadable
+   * plugin shouldn't break the whole scan.
+   */
+  private async tryReadConfig(
+    identifier: string,
+    folder: string,
+    fileName: string,
+  ): Promise<{ text: string } | { missing: true } | { error: string }> {
+    try {
+      const files = await this.ptero.listFiles(identifier, `/plugins/${folder}`);
+      const entry = files.find((file) => file.is_file && file.name === fileName);
+      if (!entry) return { missing: true };
+      if (entry.size > MAX_CONFIG_BYTES) return { error: `${fileName} is too large to scan.` };
+      return { text: await this.ptero.readFile(identifier, `/plugins/${folder}/${fileName}`) };
+    } catch (error) {
+      if (error instanceof PterodactylError) {
+        if (error.status === 404) return { missing: true };
+        return { error: `Couldn't read ${fileName} (Pterodactyl/Wings error ${error.status}). Try Rescan.` };
+      }
+      throw error;
+    }
+  }
+
   async scan(user: UserRow, identifier: string, refresh = false): Promise<PluginScan> {
     const access = await this.requirePermissions(user, identifier, ['file.read']);
     const cached = this.cache.get(identifier);
     if (!refresh && cached && Date.now() - cached.at < CACHE_MS) return cached.scan;
 
-    const root = await this.ptero.listFiles(identifier, '/');
+    let root;
+    try {
+      root = await this.ptero.listFiles(identifier, '/');
+    } catch (error) {
+      if (error instanceof PterodactylError) {
+        throw new BadGatewayException(
+          `Couldn't list this server's files: ${error.message.replace(/^Pterodactyl responded \d+: /, '')} ` +
+            "This comes from the server's node (Wings): check the node is online in Pterodactyl (Admin → Nodes) and look at the Wings log on that node.",
+        );
+      }
+      throw error;
+    }
     const hasPluginsFolder = root.some((entry) => !entry.is_file && entry.name === 'plugins');
-    const databases = access.permissions.includes('database.read')
-      ? (await this.ptero.listDatabases(identifier)).map((database) => this.toDatabase(database))
-      : [];
+    let databases: ServerDatabase[] = [];
+    if (access.permissions.includes('database.read')) {
+      try {
+        databases = (await this.ptero.listDatabases(identifier)).map((database) => this.toDatabase(database));
+      } catch (error) {
+        // No database host configured, or the panel can't reach it: still show plugins.
+        if (!(error instanceof PterodactylError)) throw error;
+      }
+    }
 
     let plugins: PluginInfo[] = [];
     if (hasPluginsFolder) {
@@ -158,13 +200,14 @@ export class PluginsService {
     const recipe = findRecipe(folder) ?? (jar ? findRecipe(jar) : undefined);
     if (recipe) {
       const configFile = `/plugins/${folder}/${recipe.configFile}`;
-      const text = await this.readConfig(identifier, configFile);
+      const read = await this.tryReadConfig(identifier, folder, recipe.configFile);
       const base = { name: folder, folder, jar, support: 'supported' as const, recipeId: recipe.id, configFile };
-      if (text === null) {
+      if ('missing' in read) {
         return { ...base, storage: 'not-generated', summary: 'Start the server once so the plugin creates its config.' };
       }
+      if ('error' in read) return { ...base, summary: read.error };
       try {
-        const state = readRecipeState(recipe, text);
+        const state = readRecipeState(recipe, read.text);
         return { ...base, storage: state.storage, summary: state.summary, database: state.database };
       } catch (error) {
         return { ...base, summary: (error as Error).message };
@@ -172,8 +215,9 @@ export class PluginsService {
     }
 
     const configFile = `/plugins/${folder}/config.yml`;
-    const text = await this.readConfig(identifier, configFile);
-    const settingsPath = text === null ? null : findDatabaseSettings(text);
+    const read = await this.tryReadConfig(identifier, folder, 'config.yml');
+    if ('error' in read) return { name: folder, folder, jar, support: 'none', summary: read.error };
+    const settingsPath = 'text' in read ? findDatabaseSettings(read.text) : null;
     if (settingsPath !== null) {
       return {
         name: folder,

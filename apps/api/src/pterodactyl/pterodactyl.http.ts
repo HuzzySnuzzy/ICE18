@@ -4,9 +4,16 @@ export class PterodactylError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** e.g. "GET /api/client/servers/abcd1234/files/list", for logs. */
+    readonly request?: string,
   ) {
     super(message);
     this.name = 'PterodactylError';
+  }
+
+  /** Pterodactyl's "error while communicating with the machine running this server": Wings failed. */
+  get fromWings(): boolean {
+    return /machine running this server/i.test(this.message);
   }
 }
 
@@ -88,7 +95,7 @@ export class PterodactylHttp {
     if (!response.ok) {
       const detail =
         (payload as { errors?: Array<{ detail?: string }> } | undefined)?.errors?.[0]?.detail ?? response.statusText;
-      throw new PterodactylError(`Pterodactyl responded ${response.status}: ${detail}`, response.status);
+      throw new PterodactylError(`Pterodactyl responded ${response.status}: ${detail}`, response.status, `${method} ${path}`);
     }
     if (payload === undefined) {
       throw new PterodactylError('Pterodactyl returned a response that is not JSON. Is PTERODACTYL_URL correct?', response.status);
