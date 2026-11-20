@@ -96,11 +96,11 @@ const databaseKey = (database: { serverIdentifier: string; id: string }) => `${d
 
 // ---------- ribbon ----------
 
-function RibbonGroup({ label, children }: { label: string; children: ReactNode }) {
+function RibbonGroup({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <div className="flex flex-col items-center border-r border-ink-700 px-3 last:border-r-0">
+    <div className={cx('flex shrink-0 flex-col items-center border-r border-ink-700 px-1.5 last:border-r-0 lg:px-3', className)}>
       <div className="flex items-center gap-1">{children}</div>
-      <div className="mt-1 text-[10px] tracking-wide text-ink-500 uppercase">{label}</div>
+      <div className="mt-1 hidden text-[10px] tracking-wide text-ink-500 uppercase lg:block">{label}</div>
     </div>
   );
 }
@@ -125,7 +125,7 @@ function RibbonButton({
       disabled={disabled}
       title={title}
       className={cx(
-        'flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        'flex items-center gap-1.5 rounded px-2.5 py-2 text-xs font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-40 lg:px-2 lg:py-1',
         active ? 'bg-ice-500/20 text-ice-200' : 'text-ink-200 hover:bg-ink-700',
       )}
     >
@@ -222,6 +222,7 @@ function Datasheet({
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [current, setCurrent] = useState<number | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{ row: number; column: string } | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [saving, setSaving] = useState<number | 'new' | null>(null);
   const [draft, setDraft] = useState<Record<string, string> | null>(null);
@@ -242,6 +243,7 @@ function Datasheet({
       }
       setPage(await api<DbRowsPage>(`${base}/rows?${params}`));
       setSelected(new Set());
+      setSelectedCell(null);
       setEditing(null);
     } catch (err) {
       setError(errorMessage(err));
@@ -464,11 +466,17 @@ function Datasheet({
                       return (
                         <td
                           key={column.name}
-                          onClick={() => setCurrent(rowIndex)}
+                          onClick={() => {
+                            // Tap a cell to select it, tap it again to edit (phones can't double-click reliably).
+                            if (selectedCell?.row === rowIndex && selectedCell.column === column.name && !isEditing) beginEdit(rowIndex, column);
+                            else setSelectedCell({ row: rowIndex, column: column.name });
+                            setCurrent(rowIndex);
+                          }}
                           onDoubleClick={() => beginEdit(rowIndex, column)}
                           className={cx(
                             'max-w-[22rem] border border-ink-700 px-2 py-1 align-top whitespace-nowrap',
                             isEditing ? 'p-0 outline-2 -outline-offset-2 outline-ice-400' : 'truncate',
+                            !isEditing && selectedCell?.row === rowIndex && selectedCell.column === column.name && 'outline-1 -outline-offset-1 outline-ice-500/70',
                             editable && !isEditing && 'cursor-text',
                           )}
                           title={isEditing ? undefined : cellText(cell)}
@@ -483,7 +491,7 @@ function Datasheet({
                                 onChange={(event) => setEditing({ ...editing, value: event.target.value, isNull: false })}
                                 onKeyDown={onEditKey}
                                 onBlur={() => editingRef.current && void commit(editingRef.current)}
-                                className="min-w-[10rem] flex-1 bg-ink-950 px-2 py-1 text-ink-100 outline-none"
+                                className="min-w-[10rem] flex-1 bg-ink-950 px-2 py-1 text-base text-ink-100 outline-none lg:text-[13px]"
                               />
                               {column.nullable && (
                                 <button
@@ -527,7 +535,7 @@ function Datasheet({
                             if (event.key === 'Escape') setDraft(null);
                           }}
                           placeholder={column.autoIncrement ? '(New)' : column.default !== null ? `default: ${column.default}` : ''}
-                          className="w-full min-w-[8rem] bg-transparent px-2 py-1 text-ink-100 outline-none placeholder:text-ink-500 focus:bg-ink-950"
+                          className="w-full min-w-[8rem] bg-transparent px-2 py-1 text-base text-ink-100 outline-none placeholder:text-ink-500 focus:bg-ink-950 lg:text-[13px]"
                         />
                       ) : (
                         <span className="px-2 text-ink-500">—</span>
@@ -571,15 +579,15 @@ function Datasheet({
       )}
 
       {/* Record navigation bar, Access style. */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-ink-700 bg-ink-850 px-3 py-1.5 text-xs text-ink-300">
-        <span className="text-ink-400">Records:</span>
+      <div className="flex items-center gap-1 border-t border-ink-700 bg-ink-850 px-2 py-1 text-xs text-ink-300 sm:flex-wrap sm:gap-2 sm:px-3 sm:py-1.5">
+        <span className="hidden text-ink-400 sm:inline">Records:</span>
         <NavButton label="First page" disabled={offset === 0} onClick={() => setOffset(0)}>
           ⏮
         </NavButton>
         <NavButton label="Previous page" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
           ◀
         </NavButton>
-        <span className="min-w-[9rem] text-center tabular-nums">
+        <span className="min-w-0 flex-1 text-center tabular-nums sm:min-w-[9rem] sm:flex-none">
           {page ? (
             <>
               {first.toLocaleString()}–{last.toLocaleString()} of {total === null ? '?' : `${page.totalIsEstimate ? '~' : ''}${total.toLocaleString()}`}
@@ -603,15 +611,15 @@ function Datasheet({
           ⏭
         </NavButton>
         {canEdit && (
-          <NavButton label="New record" onClick={startNew}>
+          <NavButton label="New record" onClick={startNew} className="hidden sm:block">
             ▶*
           </NavButton>
         )}
         {loading && page && <Spinner className="ml-1 size-3" />}
-        <span className="ml-auto text-ink-500">
+        <span className="ml-auto hidden text-ink-500 sm:inline">
           {selected.size > 0 ? `${selected.size} selected · ` : ''}
           {canEdit
-            ? 'Double-click a cell to edit · Enter saves · Esc cancels'
+            ? 'Click a selected cell (or double-click) to edit · Enter saves · Esc cancels'
             : design.editable && locked
               ? 'Read-only while a server using this database is online'
               : 'Read-only'}
@@ -621,7 +629,19 @@ function Datasheet({
   );
 }
 
-function NavButton({ children, onClick, disabled, label }: { children: ReactNode; onClick: () => void; disabled?: boolean; label: string }) {
+function NavButton({
+  children,
+  onClick,
+  disabled,
+  label,
+  className,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  label: string;
+  className?: string;
+}) {
   return (
     <button
       type="button"
@@ -629,7 +649,7 @@ function NavButton({ children, onClick, disabled, label }: { children: ReactNode
       disabled={disabled}
       title={label}
       aria-label={label}
-      className="rounded px-1.5 py-0.5 text-ink-200 hover:bg-ink-700 disabled:opacity-30 disabled:hover:bg-transparent"
+      className={cx('rounded px-3 py-2 text-ink-200 hover:bg-ink-700 disabled:opacity-30 disabled:hover:bg-transparent lg:px-1.5 lg:py-0.5', className)}
     >
       {children}
     </button>
@@ -721,18 +741,18 @@ function DatabaseInfo({
   status: DatabaseLockStatus | undefined;
 }) {
   return (
-    <div className="space-y-6 overflow-auto p-5">
+    <div className="space-y-6 overflow-auto p-4 sm:p-5">
       <section>
         <h3 className="mb-3 text-xs font-semibold tracking-wide text-ink-400 uppercase">Where it lives</h3>
-        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[150px_1fr]">
+        <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-x-6">
           <Property label="Database">
             <span className="font-mono">{database.name}</span>
           </Property>
           <Property label="Owner server">
             <Link to={`/servers/${database.serverIdentifier}`} className="text-ice-400 hover:text-ice-300">
               {database.serverName}
-            </Link>{' '}
-            <span className="text-xs text-ink-500">(its Databases tab in Pterodactyl)</span>
+            </Link>
+            <span className="hidden text-xs text-ink-500 sm:inline"> (its Databases tab in Pterodactyl)</span>
           </Property>
           <Property label="Host">
             <span className="font-mono">
@@ -767,6 +787,33 @@ function DatabaseInfo({
             These plugins' configs name <span className="font-mono text-ink-200">{database.name}</span> as their database, so they
             all read and write the same data (e.g. LuckPerms ranks or Plan statistics shared across a network).
           </p>
+          <ul className="space-y-2 sm:hidden">
+            {usages.map((usage, index) => {
+              const matches = hostMatches(usage.host, database);
+              return (
+                <li key={index} className="rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2.5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    {usage.serverIdentifier ? (
+                      <Link to={`/servers/${usage.serverIdentifier}?tab=plugins`} className="truncate font-medium text-ice-400">
+                        {usage.serverName}
+                      </Link>
+                    ) : (
+                      <span className="truncate text-ink-400 italic">{usage.serverName}</span>
+                    )}
+                    <span className="shrink-0 text-sm text-ink-200">{usage.plugin}</span>
+                  </div>
+                  <div className={cx('mt-1 font-mono text-xs break-all', matches === false ? 'text-amber-300' : 'text-ink-400')}>
+                    {usage.host ?? '?'}
+                  </div>
+                  {matches === false && (
+                    <div className="text-[11px] text-amber-300/80">Different host: this may be another database with the same name.</div>
+                  )}
+                  {usage.configFile && <div className="mt-0.5 font-mono text-[11px] break-all text-ink-500">{usage.configFile}</div>}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
           <table className="w-full border-collapse text-left text-sm">
             <thead>
               <tr className="bg-ink-800 text-xs text-ink-300">
@@ -802,6 +849,7 @@ function DatabaseInfo({
               ))}
             </tbody>
           </table>
+          </div>
           </div>
         )}
       </section>
@@ -852,10 +900,10 @@ function FileStatus({ file }: { file: LocalDatabaseFile }) {
 
 function FileInfo({ file, snapshot }: { file: LocalDatabaseFile; snapshot: LocalDatabaseSnapshot | string | undefined }) {
   return (
-    <div className="space-y-6 overflow-auto p-5">
+    <div className="space-y-6 overflow-auto p-4 sm:p-5">
       <section>
         <h3 className="mb-3 text-xs font-semibold tracking-wide text-ink-400 uppercase">Where it lives</h3>
-        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[150px_1fr]">
+        <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-x-6">
           <Property label="File">
             <span className="font-mono">{file.name}</span>
           </Property>
@@ -906,8 +954,11 @@ function FileInfo({ file, snapshot }: { file: LocalDatabaseFile; snapshot: Local
 // ---------- navigation pane ----------
 
 function NavigationPane({
+  className,
   databases,
   usage,
+  usageLoading,
+  onRescan,
   files,
   filesError,
   snapshots,
@@ -919,8 +970,11 @@ function NavigationPane({
   onOpenFile,
   activeId,
 }: {
+  className?: string;
   databases: PanelDatabase[];
   usage: DatabaseUsageIndex | null;
+  usageLoading: boolean;
+  onRescan: () => void;
   files: LocalDatabaseFile[] | null;
   filesError: string | null;
   snapshots: Record<string, LocalDatabaseSnapshot | string>;
@@ -977,14 +1031,24 @@ function NavigationPane({
   );
 
   return (
-    <aside className="flex max-h-96 min-h-0 flex-col border-b border-ink-700 bg-ink-900 lg:max-h-none lg:w-72 lg:shrink-0 lg:border-r lg:border-b-0">
+    <aside className={cx('min-h-0 flex-col bg-ink-900 lg:w-72 lg:shrink-0 lg:border-r lg:border-ink-700', className)}>
       <div className="border-b border-ink-700 px-3 py-2">
-        <div className="text-xs font-semibold tracking-wide text-ink-300 uppercase">All Databases</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-semibold tracking-wide text-ink-300 uppercase">All Databases</div>
+          <button
+            type="button"
+            onClick={onRescan}
+            disabled={usageLoading}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-ice-400 active:bg-ink-800 disabled:opacity-50 lg:hidden"
+          >
+            {usageLoading ? <Spinner className="size-3" /> : '⟳'} Rescan
+          </button>
+        </div>
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
           placeholder="Search databases, servers, plugins…"
-          className="mt-2 w-full rounded border border-ink-600 bg-ink-950 px-2 py-1 text-xs text-ink-100 placeholder:text-ink-500 focus:border-ice-500 focus:outline-none"
+          className="mt-2 w-full rounded-lg border border-ink-600 bg-ink-950 px-3 py-2 text-base text-ink-100 placeholder:text-ink-500 focus:border-ice-500 focus:outline-none lg:rounded lg:px-2 lg:py-1 lg:text-xs"
         />
       </div>
       <div className="min-h-0 flex-1 overflow-auto py-1 text-sm">
@@ -1011,14 +1075,14 @@ function NavigationPane({
                 <div key={key}>
                   <div
                     className={cx(
-                      'flex w-full items-start gap-1 px-2 py-1 hover:bg-ink-800',
+                      'flex w-full items-start gap-1 px-2 py-2 hover:bg-ink-800 lg:py-1',
                       activeId === `${key}/` && 'bg-ice-500/15',
                     )}
                   >
                     <button
                       type="button"
                       onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
-                      className="mt-0.5 rounded p-0.5 text-ink-400 hover:text-ink-100 disabled:opacity-30"
+                      className="-my-1 rounded p-2 text-ink-400 hover:text-ink-100 disabled:opacity-30 lg:my-0 lg:mt-0.5 lg:p-0.5"
                       aria-label={open ? 'Collapse' : 'Expand'}
                       disabled={!database.canBrowse}
                     >
@@ -1027,7 +1091,7 @@ function NavigationPane({
                     <button type="button" onClick={() => onOpen(database)} className="flex min-w-0 flex-1 items-start gap-1.5 text-left">
                       <span className="mt-0.5 text-ice-300">{Icon.database}</span>
                       <span className="min-w-0">
-                        <span className="block truncate font-mono text-xs text-ink-100">{database.name}</span>
+                        <span className="block truncate font-mono text-sm text-ink-100 lg:text-xs">{database.name}</span>
                         <span className="block truncate text-[11px] text-ink-500">
                           {database.serverName}
                           {otherServers.size > 0 && ` · also used by ${otherServers.size} other server${otherServers.size === 1 ? '' : 's'}`}
@@ -1062,7 +1126,7 @@ function NavigationPane({
                                 type="button"
                                 onClick={() => onOpen(database, table)}
                                 className={cx(
-                                  'flex w-full items-center gap-1.5 py-0.5 pr-2 pl-10 text-left text-xs',
+                                  'flex w-full items-center gap-1.5 py-2 pr-3 pl-10 text-left text-sm lg:py-0.5 lg:pr-2 lg:text-xs',
                                   activeId === `${key}/${table.name}` ? 'bg-ice-500/20 text-ice-100' : 'text-ink-200 hover:bg-ink-800',
                                 )}
                                 title={table.comment || table.name}
@@ -1196,11 +1260,11 @@ function LocalFilesSection({
             const snapshot = snapshots[key];
             return (
               <div key={key}>
-                <div className={cx('flex items-start gap-1 px-2 py-1 hover:bg-ink-800', activeId === `${key}/` && 'bg-ice-500/15')}>
+                <div className={cx('flex items-start gap-1 px-2 py-2 hover:bg-ink-800 lg:py-1', activeId === `${key}/` && 'bg-ice-500/15')}>
                   <button
                     type="button"
                     onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
-                    className="mt-0.5 rounded p-0.5 text-ink-400 hover:text-ink-100 disabled:opacity-30"
+                    className="-my-1 rounded p-2 text-ink-400 hover:text-ink-100 disabled:opacity-30 lg:my-0 lg:mt-0.5 lg:p-0.5"
                     aria-label={open ? 'Collapse' : 'Expand'}
                     disabled={file.kind !== 'sqlite'}
                     title={file.kind !== 'sqlite' ? "H2 files can't be opened" : undefined}
@@ -1211,7 +1275,7 @@ function LocalFilesSection({
                     <span className={cx('mt-0.5', file.kind === 'sqlite' ? 'text-ink-300' : 'text-ink-500')}>{Icon.database}</span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
-                        <span className="truncate font-mono text-xs text-ink-100">{file.name}</span>
+                        <span className="truncate font-mono text-sm text-ink-100 lg:text-xs">{file.name}</span>
                       </span>
                       <span className="flex items-center gap-1.5 text-[11px] text-ink-500">
                         <span className="truncate">
@@ -1246,7 +1310,7 @@ function LocalFilesSection({
                             type="button"
                             onClick={() => onOpenFile(file, table)}
                             className={cx(
-                              'flex w-full items-center gap-1.5 py-0.5 pr-2 pl-10 text-left text-xs',
+                              'flex w-full items-center gap-1.5 py-2 pr-3 pl-10 text-left text-sm lg:py-0.5 lg:pr-2 lg:text-xs',
                               activeId === `${key}/${table.name}` ? 'bg-ice-500/20 text-ice-100' : 'text-ink-200 hover:bg-ink-800',
                             )}
                           >
@@ -1286,6 +1350,15 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
   const [stopping, setStopping] = useState<string | null>(null);
   const [files, setFiles] = useState<LocalDatabaseFile[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
+  /** Phones show either the list or the open object; large screens show both. */
+  const [showList, setShowList] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const showObjectOnPhone = useCallback(() => {
+    setShowList(false);
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      requestAnimationFrame(() => rootRef.current?.scrollIntoView({ block: 'start' }));
+    }
+  }, []);
   const [snapshots, setSnapshots] = useState<Record<string, LocalDatabaseSnapshot | string>>({});
 
   const loadUsage = useCallback(async (refresh = false) => {
@@ -1378,8 +1451,9 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
           ],
     );
     setActiveId(id);
+    showObjectOnPhone();
     if (file.kind === 'sqlite') setExpanded((current) => ({ ...current, [key]: true }));
-  }, []);
+  }, [showObjectOnPhone]);
 
   const openDatabase = useCallback((database: PanelDatabase, table?: DbTable) => {
     const key = databaseKey(database);
@@ -1401,8 +1475,9 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
           ],
     );
     setActiveId(id);
+    showObjectOnPhone();
     if (database.canBrowse) setExpanded((current) => ({ ...current, [key]: true }));
-  }, []);
+  }, [showObjectOnPhone]);
 
   // Deep link: /databases?db=<server>/<databaseId>
   useEffect(() => {
@@ -1418,6 +1493,7 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
       const index = current.findIndex((entry) => entry.id === id);
       const next = current.filter((entry) => entry.id !== id);
       if (activeId === id) setActiveId(next[Math.max(0, index - 1)]?.id ?? null);
+      if (next.length === 0) setShowList(true);
       return next;
     });
   }
@@ -1454,7 +1530,7 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
   const onlineServers = status?.servers.filter((server) => server.state !== 'offline') ?? [];
 
   return (
-    <div className="overflow-hidden rounded-xl border border-ink-700 bg-ink-950">
+    <div ref={rootRef} className="scroll-mt-14 overflow-hidden rounded-xl border border-ink-700 bg-ink-950">
       {error && (
         <div className="flex justify-between gap-3 border-b border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
           <span>{error}</span>
@@ -1463,91 +1539,117 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
           </button>
         </div>
       )}
-      {/* Ribbon */}
-      <div className="flex flex-wrap items-stretch gap-y-2 border-b border-ink-700 bg-ink-850 px-1 py-2">
-        <RibbonGroup label="Views">
-          <RibbonButton active={isTable ? active.view === 'datasheet' : false} disabled={!isTable} onClick={() => setView('datasheet')} title="Datasheet View">
-            {Icon.table} Datasheet
-          </RibbonButton>
-          <RibbonButton active={isTable ? active.view === 'design' : false} disabled={!isTable} onClick={() => setView('design')} title="Design View">
-            {Icon.key} Design
-          </RibbonButton>
-        </RibbonGroup>
-        <RibbonGroup label="Records">
-          <RibbonButton disabled={!isTable || active.view !== 'datasheet'} onClick={() => sheet.handle?.refresh()} title="Refresh">
-            ↻ Refresh
-          </RibbonButton>
-          <RibbonButton disabled={!canChangeRows} onClick={() => sheet.handle?.startNew()} title="New record">
-            ＋ New
-          </RibbonButton>
-          <RibbonButton
-            disabled={!canChangeRows || !sheet.handle || sheet.handle.selectedCount === 0}
-            onClick={() => sheet.handle?.deleteSelected()}
-            title="Delete selected records"
-          >
-            ✕ Delete
-          </RibbonButton>
-        </RibbonGroup>
-        <RibbonGroup label="Usage">
-          <RibbonButton onClick={() => void loadUsage(true)} disabled={usageLoading} title="Scan plugin configs on all servers again">
-            {usageLoading ? <Spinner className="size-3" /> : '⟳'} Rescan
-          </RibbonButton>
-        </RibbonGroup>
-        {activeFile && (
-          <div className="ml-auto flex flex-wrap items-center gap-2 px-3">
-            <span className="flex items-center gap-1.5 rounded-full bg-ink-700 px-2.5 py-1 text-xs font-medium text-ink-200">
-              {Icon.lock} {activeFile.kind === 'h2' ? "H2 file · can't be opened" : 'Read-only snapshot'}
-              {activeFile.kind === 'sqlite' && activeSnapshot && typeof activeSnapshot !== 'string' && ` · taken ${new Date(activeSnapshot.takenAt).toLocaleTimeString()}`}
-            </span>
-            {activeFile.kind === 'sqlite' && (
-              <Button
-                variant="secondary"
-                className="py-1 text-xs"
-                onClick={async () => {
-                  await loadSnapshot(activeFile, true);
-                  sheet.handle?.refresh();
-                }}
+      {/* Phones: back to the list, and what's open. */}
+      <div className={cx('items-center gap-2 border-b border-ink-700 bg-ink-900 px-2 py-1.5 lg:hidden', showList ? 'hidden' : 'flex')}>
+        <button
+          type="button"
+          onClick={() => setShowList(true)}
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-ice-400 active:bg-ink-800"
+        >
+          ‹ Databases
+        </button>
+        {active && (
+          <span className="min-w-0 flex-1 truncate text-right font-mono text-xs text-ink-300">
+            {active.databaseName}
+            {active.table ? ` / ${active.table}` : ''}
+          </span>
+        )}
+      </div>
+
+      {/* Ribbon. On phones it's one scrollable row, shown only while a table or database is open. */}
+      <div className={cx('border-b border-ink-700 bg-ink-850', showList && 'hidden lg:block')}>
+        <div className="flex flex-col lg:flex-row lg:flex-wrap lg:items-stretch">
+          <div className="flex items-stretch overflow-x-auto px-1 py-1.5 lg:flex-wrap lg:overflow-visible lg:py-2">
+            <RibbonGroup label="Views">
+              <RibbonButton active={isTable ? active.view === 'datasheet' : false} disabled={!isTable} onClick={() => setView('datasheet')} title="Datasheet View">
+                {Icon.table} Datasheet
+              </RibbonButton>
+              <RibbonButton active={isTable ? active.view === 'design' : false} disabled={!isTable} onClick={() => setView('design')} title="Design View">
+                {Icon.key} Design
+              </RibbonButton>
+            </RibbonGroup>
+            <RibbonGroup label="Records">
+              <RibbonButton disabled={!isTable || active.view !== 'datasheet'} onClick={() => sheet.handle?.refresh()} title="Refresh">
+                ↻ Refresh
+              </RibbonButton>
+              <RibbonButton disabled={!canChangeRows} onClick={() => sheet.handle?.startNew()} title="New record">
+                ＋ New
+              </RibbonButton>
+              <RibbonButton
+                disabled={!canChangeRows || !sheet.handle || sheet.handle.selectedCount === 0}
+                onClick={() => sheet.handle?.deleteSelected()}
+                title="Delete selected records"
               >
-                New snapshot
-              </Button>
-            )}
+                ✕ Delete
+              </RibbonButton>
+            </RibbonGroup>
+            <RibbonGroup label="Usage" className="hidden lg:flex">
+              <RibbonButton onClick={() => void loadUsage(true)} disabled={usageLoading} title="Scan plugin configs on all servers again">
+                {usageLoading ? <Spinner className="size-3" /> : '⟳'} Rescan
+              </RibbonButton>
+            </RibbonGroup>
           </div>
-        )}
-        {activeDatabase && (
-          <div className="ml-auto flex flex-wrap items-center gap-2 px-3">
-            {!status ? (
-              <span className="flex items-center gap-1.5 text-xs text-ink-400">
-                <Spinner className="size-3" /> Checking servers…
-              </span>
-            ) : locked ? (
-              <>
-                <span
-                  className="flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-200"
-                  title={onlineServers.map((server) => `${server.name}: ${server.state}`).join('\n')}
-                >
-                  {Icon.lock} Read-only · {onlineServers.length === 1 ? `${onlineServers[0]!.name} is ${onlineServers[0]!.state}` : `${onlineServers.length} servers online`}
-                </span>
-                {onlineServers
-                  .filter((server) => server.canStop && server.identifier && server.state === 'running')
-                  .map((server) => (
-                    <Button key={server.identifier} variant="secondary" className="py-1 text-xs" busy={stopping === server.identifier} onClick={() => void stopServer(server.identifier!)}>
-                      Stop {server.name}
+          {(activeFile || activeDatabase) && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-ink-700/60 px-3 py-2 lg:ml-auto lg:border-t-0 lg:py-0">
+              {activeFile ? (
+                <>
+                  <span className="flex items-center gap-1.5 rounded-full bg-ink-700 px-2.5 py-1 text-xs font-medium text-ink-200">
+                    {Icon.lock} {activeFile.kind === 'h2' ? "H2 file · can't be opened" : 'Read-only snapshot'}
+                    {activeFile.kind === 'sqlite' && activeSnapshot && typeof activeSnapshot !== 'string' && ` · ${new Date(activeSnapshot.takenAt).toLocaleTimeString()}`}
+                  </span>
+                  {activeFile.kind === 'sqlite' && (
+                    <Button
+                      variant="secondary"
+                      className="py-1 text-xs"
+                      onClick={async () => {
+                        await loadSnapshot(activeFile, true);
+                        sheet.handle?.refresh();
+                      }}
+                    >
+                      New snapshot
                     </Button>
-                  ))}
-              </>
-            ) : (
-              <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-200">
-                {Icon.pencil} Editing enabled · all {status.servers.length} server{status.servers.length === 1 ? '' : 's'} offline
-              </span>
-            )}
-          </div>
-        )}
+                  )}
+                </>
+              ) : !status ? (
+                <span className="flex items-center gap-1.5 text-xs text-ink-400">
+                  <Spinner className="size-3" /> Checking servers…
+                </span>
+              ) : locked ? (
+                <>
+                  <span
+                    className="flex min-w-0 items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-200"
+                    title={onlineServers.map((server) => `${server.name}: ${server.state}`).join('\n')}
+                  >
+                    {Icon.lock}
+                    <span className="truncate">
+                      Read-only · {onlineServers.length === 1 ? `${onlineServers[0]!.name} is ${onlineServers[0]!.state}` : `${onlineServers.length} servers online`}
+                    </span>
+                  </span>
+                  {onlineServers
+                    .filter((server) => server.canStop && server.identifier && server.state === 'running')
+                    .map((server) => (
+                      <Button key={server.identifier} variant="secondary" className="py-1 text-xs" busy={stopping === server.identifier} onClick={() => void stopServer(server.identifier!)}>
+                        Stop {server.name}
+                      </Button>
+                    ))}
+                </>
+              ) : (
+                <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-200">
+                  {Icon.pencil} Editing enabled · all {status.servers.length} server{status.servers.length === 1 ? '' : 's'} offline
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col lg:h-[calc(100vh-15rem)] lg:min-h-[560px] lg:flex-row">
         <NavigationPane
+          className={cx(showList ? 'flex' : 'hidden', 'lg:flex')}
           databases={databases}
           usage={usage}
+          usageLoading={usageLoading}
+          onRescan={() => void loadUsage(true)}
           files={files}
           filesError={filesError}
           snapshots={snapshots}
@@ -1560,13 +1662,18 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
           activeId={activeId}
         />
 
-        <section className="flex min-h-[420px] min-w-0 flex-1 flex-col">
-          <div className="flex min-h-9 items-end gap-px overflow-x-auto border-b border-ink-700 bg-ink-900 px-1 pt-1">
+        <section
+          className={cx(
+            showList ? 'hidden' : 'flex',
+            'h-[calc(100dvh-4rem)] min-h-[420px] min-w-0 flex-1 flex-col lg:flex lg:h-auto',
+          )}
+        >
+          <div className={cx('min-h-9 items-end gap-px overflow-x-auto border-b border-ink-700 bg-ink-900 px-1 pt-1', open.length > 1 ? 'flex' : 'hidden lg:flex')}>
             {open.map((object) => (
               <div
                 key={object.id}
                 className={cx(
-                  'flex shrink-0 items-center gap-1.5 rounded-t border border-b-0 px-2.5 py-1 text-xs',
+                  'flex shrink-0 items-center gap-1.5 rounded-t border border-b-0 px-2.5 py-1.5 text-xs lg:py-1',
                   object.id === activeId ? 'border-ink-600 bg-ink-950 text-ink-100' : 'border-transparent text-ink-400 hover:text-ink-200',
                 )}
               >
@@ -1577,7 +1684,7 @@ export function DatabaseExplorer({ isAdmin }: { isAdmin: boolean }) {
                 <button
                   type="button"
                   onClick={() => closeObject(object.id)}
-                  className="ml-1 rounded px-1 text-ink-500 hover:bg-ink-700 hover:text-ink-200"
+                  className="ml-1 rounded px-1.5 text-ink-500 hover:bg-ink-700 hover:text-ink-200 lg:px-1"
                   aria-label={`Close ${object.table || object.databaseName}`}
                 >
                   ×

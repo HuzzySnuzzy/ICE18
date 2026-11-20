@@ -24,15 +24,16 @@ export function Layout() {
 
   return (
     <div className="flex min-h-full flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col border-ink-800 bg-ink-900 md:sticky md:top-0 md:h-screen md:w-60 md:border-r">
-        <div className="flex items-center gap-2.5 px-4 py-4 md:px-5 md:py-5">
-          <Logo className="size-8" />
-          <div>
+      {/* Phones: one slim sticky row (logo + menu). Larger screens: sidebar. */}
+      <aside className="sticky top-0 z-30 flex shrink-0 items-center border-b border-ink-800 bg-ink-900/95 backdrop-blur md:h-screen md:w-60 md:flex-col md:items-stretch md:border-r md:border-b-0 md:bg-ink-900">
+        <div className="flex items-center gap-2.5 py-2 pr-1 pl-4 md:px-5 md:py-5">
+          <Logo className="size-7 md:size-8" />
+          <div className="hidden md:block">
             <div className="text-sm font-bold tracking-wide text-ink-100">ICE18</div>
             <div className="text-[11px] text-ink-400">Server panel</div>
           </div>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:pb-0">
+        <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto px-2 py-2 md:flex-none md:flex-col md:px-3 md:py-0">
           <NavItem to="/servers">Servers</NavItem>
           <NavItem to="/databases">Databases</NavItem>
           <NavItem to="/account">Account</NavItem>
@@ -47,7 +48,7 @@ export function Layout() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
+      <main className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
         <div className="mx-auto max-w-7xl">
           {user.isAdmin && meta && !meta.pterodactylConfigured && (
             <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">

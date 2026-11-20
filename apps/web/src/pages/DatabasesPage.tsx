@@ -8,7 +8,15 @@ export function DatabasesPage() {
     <>
       <PageHeader
         title="Databases"
-        subtitle="Every database across your servers: where it lives, which servers use it, and its data. Read-only while any server using it is online."
+        subtitle={
+          <>
+            <span className="sm:hidden">Every database across your servers.</span>
+            <span className="hidden sm:inline">
+              Every database across your servers: where it lives, which servers use it, and its data. Read-only while any server
+              using it is online.
+            </span>
+          </>
+        }
       />
       <DatabaseExplorer isAdmin={Boolean(user?.isAdmin)} />
     </>

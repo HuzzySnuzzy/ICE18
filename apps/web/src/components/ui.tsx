@@ -43,7 +43,8 @@ export function Input({ label, hint, className, ...props }: InputHTMLAttributes<
     <input
       {...props}
       className={cx(
-        'w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-ink-100 placeholder:text-ink-500',
+        // 16px on phones: iOS zooms the page into smaller inputs.
+        'w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-base text-ink-100 placeholder:text-ink-500 sm:text-sm',
         'focus:border-ice-500 focus:ring-2 focus:ring-ice-500/25 focus:outline-none',
         className,
       )}
@@ -101,9 +102,9 @@ export function Spinner({ className }: { className?: string }) {
 
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3 md:mb-6 md:gap-4">
       <div className="min-w-0">
-        <h1 className="truncate text-2xl font-semibold tracking-tight text-ink-100">{title}</h1>
+        <h1 className="truncate text-xl font-semibold tracking-tight text-ink-100 md:text-2xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-ink-400">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
